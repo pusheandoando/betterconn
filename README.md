@@ -22,12 +22,24 @@ Linux network optimizer focused on Debian. Maximizes connection quality for gami
 
 
 
+## Persistence
+`--start` survives reboots, forced shutdowns, and power loss. On apply, betterconn writes:
+- `/etc/modules-load.d/betterconn.conf` — loads `tcp_bbr` and `xt_TOS` early at boot, before sysctl runs
+- `/etc/sysctl.d/99-betterconn.conf` — all kernel parameters, applied by `systemd-sysctl` at every boot
+- `/etc/systemd/system/betterconn.service` — oneshot systemd unit that re-applies the iptables QoS rules after network is up
+
+`--stop` removes all three files, disables the systemd unit, reverts `/proc/sys` to the saved backup, and removes the iptables rules. After `--stop`, rebooting leaves no trace of betterconn.
+
+
+
+
+
 ## Requirements
 ### Runtime dependencies
 ```bash
-sudo apt install iptables iproute2 kmod iputils-ping
+sudo apt install iptables iproute2 kmod iputils-ping curl
 ```
-These are pre-installed on most Debian systems. The Linux kernel must be 4.9 or newer for BBR support (Debian 9+ ships this by default).
+
 
 ### Build dependencies
 ```bash
@@ -35,9 +47,6 @@ sudo apt install build-essential cmake
 ```
 CMake 3.16 or newer is required. Debian 11 ships cmake 3.18, Debian 12 ships cmake 3.25.
 No external C++ libraries are needed beyond the standard C++17 library (included with GCC 8+).
-
-
-
 
 
 ## Build
@@ -53,13 +62,18 @@ chmod +x build_debian.sh
 ```
 
 
-
-
-
 ## Usage
 ```bash
-sudo betterconn --start    # apply all optimizations
-betterconn --status        # live stats: speed, ping, current settings
-sudo betterconn --stop     # revert everything to original settings
-betterconn --help          # usage
+sudo betterconn --start      # apply all optimizations (persists across reboots)
+betterconn --status          # live stats: speed, ping, current settings
+sudo betterconn --stop       # revert everything to original settings
+sudo betterconn --speedtest  # measure download and ping before/after optimization
+betterconn --help            # usage
 ```
+
+### --speedtest behavior
+If betterconn is **active** when `--speedtest` is run: it stops, measures the baseline, starts again, measures the optimized result, and leaves betterconn active.
+
+If betterconn is **inactive** when `--speedtest` is run: it measures the baseline first, then starts, measures the optimized result, and stops again to respect the original state.
+
+Results show real measured values — no arbitrary numbers. Network conditions, ISP shaping, and server load all affect results, so some variance between runs is normal.

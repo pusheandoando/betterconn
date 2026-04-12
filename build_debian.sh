@@ -4,7 +4,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VERSION="1.0.0"
+VERSION="1.0.1"
 PKG_NAME="betterconn"
 BUILD_DIR="${SCRIPT_DIR}/build"
 DIST_DIR="${SCRIPT_DIR}/dist"
@@ -41,13 +41,14 @@ Architecture: ${ARCH}
 Maintainer: Christian <pusheandoando@github>
 Section: net
 Priority: optional
-Depends: iptables, iproute2, kmod, iputils-ping
+Depends: iptables, iproute2, kmod, iputils-ping, curl
 Description: betterconn - Linux network optimizer for Debian
  Maximizes internet connection quality on Debian-based systems.
  Applies TCP BBR congestion control, fq queueing discipline, buffer
  tuning, TCP Fast Open, and iptables QoS rules to reduce latency,
  improve ping in games, and increase throughput for all connections.
  Original settings are saved and fully restored on --stop.
+ Optimizations persist across reboots via sysctl.d and systemd.
 CONTROL
 
 

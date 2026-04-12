@@ -3,6 +3,7 @@ add_library(betterconn_core
     src/storage.cpp
     src/optimizer.cpp
     src/status.cpp
+    src/speedtest.cpp
 )
 
 target_include_directories(betterconn_core PUBLIC include)

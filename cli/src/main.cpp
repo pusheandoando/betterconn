@@ -1,5 +1,6 @@
 // cli/src/main.cpp
 #include "betterconn/optimizer.hpp"
+#include "betterconn/speedtest.hpp"
 #include "betterconn/status.hpp"
 
 #include <cstring>
@@ -16,10 +17,11 @@ void print_help() {
     std::cout << "\nbetterconn - Linux Network Optimizer\n";
     std::cout << "by Christian (@pusheandoando)\n";
     std::cout << "\nUsage:\n";
-    std::cout << "  betterconn --start    Apply all network optimizations\n";
-    std::cout << "  betterconn --stop     Revert to original system settings\n";
-    std::cout << "  betterconn --status   Show live connection stats and state\n";
-    std::cout << "  betterconn --help     Show this message\n";
+    std::cout << "  betterconn --start      Apply all network optimizations (persists across reboots)\n";
+    std::cout << "  betterconn --stop       Revert to original system settings\n";
+    std::cout << "  betterconn --status     Show live connection stats and state\n";
+    std::cout << "  betterconn --speedtest  Measure download speed and ping before/after optimization\n";
+    std::cout << "  betterconn --help       Show this message\n";
 }
 
 void require_root() {
@@ -28,6 +30,7 @@ void require_root() {
         std::exit(1);
     }
 }
+
 }
 
 int main(int argc, char* argv[]) {
@@ -59,6 +62,9 @@ int main(int argc, char* argv[]) {
             std::cout << "[OK] settings restored to original\n";
         } else if (cmd == "--status") {
             betterconn::Status().print();
+        } else if (cmd == "--speedtest") {
+            require_root();
+            betterconn::Speedtest().run();
         } else {
             std::cerr << "[!!] unknown option: " << cmd << "\n";
             std::cerr << "run: betterconn --help\n";
