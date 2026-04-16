@@ -29,7 +29,10 @@ private:
     static void apply_iptables();
     static void revert_iptables();
     static std::vector<std::string> iptables_add_rules();
-    static void write_persistence(bool bbr_available);
+    static void write_persistence(bool bbr_available, const std::string& iface);
     static void remove_persistence();
+    static std::string detect_interface();
+    static void apply_nic_tuning(const std::string& iface);
+    static void revert_nic_tuning();
 };
 }

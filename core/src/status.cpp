@@ -17,15 +17,16 @@
 namespace betterconn {
 std::string Status::detect_interface() {
     std::ifstream f("/proc/net/route");
-    
     if (!f) return "unknown";
-    
+
     std::string line;
     std::getline(f, line);
+    
     while (std::getline(f, line)) {
         std::istringstream ss(line);
         std::string iface, dest;
         ss >> iface >> dest;
+        
         if (dest == "00000000") return iface;
     }
     return "unknown";
@@ -38,16 +39,16 @@ std::pair<double, double> Status::measure_speed(const std::string& iface) {
         
         while (std::getline(f, line)) {
             auto colon = line.find(':');
-            
             if (colon == std::string::npos) continue;
-            
+
             std::string name = line.substr(0, colon);
+            
             auto trim = name.find_first_not_of(' ');
             if (trim != std::string::npos) name = name.substr(trim);
+            
             if (name != iface) continue;
-            
+
             std::istringstream ss(line.substr(colon + 1));
-            
             uint64_t rx, tx, dummy;
             ss >> rx;
             for (int i = 0; i < 7; ++i) ss >> dummy;
@@ -60,14 +61,13 @@ std::pair<double, double> Status::measure_speed(const std::string& iface) {
     auto [rx0, tx0] = read_bytes();
     std::this_thread::sleep_for(std::chrono::seconds(1));
     auto [rx1, tx1] = read_bytes();
-
     return {static_cast<double>(rx1 - rx0), static_cast<double>(tx1 - tx0)};
 }
 
 double Status::measure_ping(const std::string& host) {
     std::string cmd = "ping -c 3 -i 0.2 -W 2 " + host + " 2>/dev/null";
-    FILE* p = popen(cmd.c_str(), "r");
     
+    FILE* p = popen(cmd.c_str(), "r");
     if (!p) return -1.0;
     
     std::string output;
@@ -98,10 +98,8 @@ std::string Status::read_sysctl(const std::string& key) {
     std::string path = "/proc/sys/";
     
     for (char c : key) path += (c == '.') ? '/' : c;
-    
     std::ifstream f(path);
     if (!f) return "n/a";
-    
     std::string val;
     std::getline(f, val);
     return val;
@@ -127,32 +125,44 @@ void Status::print() const {
 
     std::cout << "\nbetterconn status\n";
     std::cout << "-----------------\n";
-    std::cout << "State:            " << (active ? "ACTIVE" : "INACTIVE") << "\n";
-    std::cout << "Interface:        " << iface << "\n";
+    std::cout << "State:              " << (active ? "ACTIVE" : "INACTIVE") << "\n";
+    std::cout << "Interface:          " << iface << "\n";
 
     if (iface != "unknown") {
         std::cout << "Sampling speeds (1s)..." << std::flush;
         auto [down, up] = measure_speed(iface);
         std::cout << "\r                       \r";
-        std::cout << "Download:         " << fmt_speed(down) << "\n";
-        std::cout << "Upload:           " << fmt_speed(up) << "\n";
+        std::cout << "Download:           " << fmt_speed(down) << "\n";
+        std::cout << "Upload:             " << fmt_speed(up) << "\n";
     }
 
     double ping = measure_ping("8.8.8.8");
     std::cout << std::fixed << std::setprecision(2);
     if (ping >= 0.0) {
-        std::cout << "Ping (8.8.8.8):   " << ping << " ms avg\n";
+        std::cout << "Ping (8.8.8.8):     " << ping << " ms avg\n";
     } else {
-        std::cout << "Ping (8.8.8.8):   unreachable\n";
+        std::cout << "Ping (8.8.8.8):     unreachable\n";
     }
 
-    std::cout << "Congestion ctrl:  " << read_sysctl("net.ipv4.tcp_congestion_control") << "\n";
-    std::cout << "Queue discipline: " << read_sysctl("net.core.default_qdisc") << "\n";
-    std::cout << "TCP Fast Open:    " << read_sysctl("net.ipv4.tcp_fastopen") << "\n";
-    std::cout << "RX buffer max:    " << read_sysctl("net.core.rmem_max") << " bytes\n";
-    std::cout << "TX buffer max:    " << read_sysctl("net.core.wmem_max") << " bytes\n";
-    std::cout << "Fin timeout:      " << read_sysctl("net.ipv4.tcp_fin_timeout") << " s\n";
-    std::cout << "Slow start idle:  " << read_sysctl("net.ipv4.tcp_slow_start_after_idle") << "\n";
+    std::cout << "\n";
+    std::cout << "Congestion ctrl:    " << read_sysctl("net.ipv4.tcp_congestion_control") << "\n";
+    std::cout << "Queue discipline:   " << read_sysctl("net.core.default_qdisc") << "\n";
+    std::cout << "ECN:                " << read_sysctl("net.ipv4.tcp_ecn") << "\n";
+    std::cout << "TCP Fast Open:      " << read_sysctl("net.ipv4.tcp_fastopen") << "\n";
+    std::cout << "Autocorking:        " << read_sysctl("net.ipv4.tcp_autocorking") << "\n";
+
+    std::cout << "\n";
+    std::cout << "RX buffer max:      " << read_sysctl("net.core.rmem_max") << " bytes\n";
+    std::cout << "TX buffer max:      " << read_sysctl("net.core.wmem_max") << " bytes\n";
+    std::cout << "RX buffer default:  " << read_sysctl("net.core.rmem_default") << " bytes\n";
+    std::cout << "TX buffer default:  " << read_sysctl("net.core.wmem_default") << " bytes\n";
+
+    std::cout << "\n";
+    std::cout << "Fin timeout:        " << read_sysctl("net.ipv4.tcp_fin_timeout") << " s\n";
+    std::cout << "Slow start idle:    " << read_sysctl("net.ipv4.tcp_slow_start_after_idle") << "\n";
+    std::cout << "Keepalive time:     " << read_sysctl("net.ipv4.tcp_keepalive_time") << " s\n";
+    std::cout << "Keepalive intvl:    " << read_sysctl("net.ipv4.tcp_keepalive_intvl") << " s\n";
+    std::cout << "Keepalive probes:   " << read_sysctl("net.ipv4.tcp_keepalive_probes") << "\n";
     std::cout << "\n";
 }
 }
