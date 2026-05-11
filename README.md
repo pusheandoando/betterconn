@@ -1,38 +1,37 @@
-# betterconn
-Linux network optimizer focused on Debian. Maximizes connection quality for gaming, streaming, and general use by applying proven kernel-level and traffic tuning at runtime, with full backup and restore of original settings. Written by Christian (@pusheandoando)
+# betterconn (v1.0.3)
+Linux network optimizer focused on Debian. Maximizes connection quality for gaming, streaming, and general use by applying proven kernel-level and traffic tuning at runtime, with adaptive real-time adjustment and full backup and restore of original settings. Written by Christian (@pusheandoando)
 
 
 
 
 
 ## What it does
-- **TCP BBR** congestion control (Google's algorithm — measures actual bandwidth and RTT instead of relying on packet loss, significantly reducing latency and improving throughput) — [paper](https://queue.acm.org/detail.cfm?id=3022184)
-- **fq** queue discipline (fair queuing, required for BBR pacing) — [kernel docs](https://www.kernel.org/doc/Documentation/networking/fq.txt)
-- **TCP ECN** (Explicit Congestion Notification) — routers signal congestion by marking packets rather than dropping them, allowing TCP to back off before any loss occurs; pairs directly with BBR+fq for bufferbloat reduction — [RFC 3168](https://datatracker.ietf.org/doc/html/rfc3168)
-- **TCP Fast Open** enabled for client and server (value 3), reducing connection setup round-trips — [RFC 7413](https://datatracker.ietf.org/doc/html/rfc7413)
-- **RX/TX socket buffers** raised to 32 MB max with 1 MB default; covers the bandwidth-delay product for 1 Gbps links at up to ~250 ms RTT without overcommitting RAM
-- **tcp_autocorking disabled** — the kernel normally batches small writes to fill packets; disabling this sends each write immediately, cutting queuing delay for interactive and gaming traffic where microseconds matter — [LWN](https://lwn.net/Articles/576263/)
-- **tcp_notsent_lowat = 131072** to reduce bufferbloat and keep HTTP/game request latency low — [paper](https://dl.acm.org/doi/10.1145/2063176.2063196)
-- **tcp_slow_start_after_idle = 0** so BBR does not throttle connections that were briefly idle (critical for gaming and real-time apps)
-- **tcp_fin_timeout = 15** to release closed connections faster
-- **tcp_tw_reuse = 1** to reuse TIME_WAIT sockets safely
-- **tcp_mtu_probing = 1** for automatic MTU discovery on lossy paths — [RFC 4821](https://datatracker.ietf.org/doc/html/rfc4821)
-- **ip_local_port_range = 1024–65535** to maximize available outgoing ports
-- **TCP keepalive tuning** — detects dead connections in ~120 s instead of the default ~2.5 hours, freeing ports and avoiding hangs in games and applications
-- **Adaptive NIC interrupt coalescing** via ethtool — the NIC driver dynamically adjusts its interrupt rate to balance between low latency and high throughput depending on current traffic patterns
-- **iptables TOS 0x10** (Minimize Delay) rules for DNS, HTTP/S, Steam, and common game server UDP ports — [RFC 791](https://www.rfc-editor.org/rfc/rfc791) · [RFC 2474](https://www.rfc-editor.org/rfc/rfc2474.html)
+- **TCP BBR** congestion control — measures actual bandwidth and RTT instead of relying on packet loss, reducing latency and improving throughput — [ACM Queue](https://queue.acm.org/detail.cfm?id=3022184)
+- **fq_codel** queue discipline — active queue management with per-flow isolation; eliminates bufferbloat without a rate cap, making it correct for endpoint use — [RFC 8290](https://datatracker.ietf.org/doc/html/rfc8290), [WiFi 6 AQM study 2025](https://arxiv.org/abs/2512.18259)
+- **TCP ECN** — routers signal congestion by marking packets rather than dropping them, pairs directly with fq_codel — [RFC 3168](https://datatracker.ietf.org/doc/html/rfc3168)
+- **TCP Fast Open** (value 3) — reduces connection setup round-trips — [RFC 7413](https://datatracker.ietf.org/doc/html/rfc7413)
+- **RX/TX socket buffers** — dynamically sized by the adaptive tuner based on measured real-time throughput, from 4 MB (slow links) up to 32 MB (fast links)
+- **tcp_autocorking disabled** — sends each write immediately, cutting queuing delay for interactive and gaming traffic — [LWN](https://lwn.net/Articles/576263/)
+- **tcp_notsent_lowat** — tuned dynamically to reduce application-level buffering and keep request latency low
+- **tcp_slow_start_after_idle = 0** — BBR does not throttle connections that were briefly idle
+- **WiFi power save disabled** — prevents 20–100 ms idle latency spikes caused by the card sleeping between beacon intervals; made permanent via NetworkManager so it survives reconnects
+- **Adaptive NIC interrupt coalescing** via ethtool — dynamically balances interrupt rate between low latency and high throughput
+- **iptables TOS 0x10** (Minimize Delay) for DNS, HTTP/S, Steam, and common game UDP ports — [RFC 791](https://www.rfc-editor.org/rfc/rfc791)
+- **Real-time adaptive tuner** — runs as a background daemon; every 3 seconds reads `/proc/net/wireless` (RSSI, TX retries), `/proc/net/dev` (live throughput), and RTT via ping, then adjusts buffers, `netdev_budget`, `tcp_notsent_lowat`, and the fq_codel target without any user interaction
 
 
 
 
 
 ## Persistence
-`--start` survives reboots, forced shutdowns, and power loss. On apply, betterconn writes:
-- `/etc/modules-load.d/betterconn.conf`: loads `tcp_bbr` and `xt_TOS` early at boot
-- `/etc/sysctl.d/99-betterconn.conf`: all kernel parameters, applied by `systemd-sysctl` at every boot
-- `/etc/systemd/system/betterconn.service`: oneshot systemd unit that re-applies the iptables QoS rules and adaptive NIC coalescing after the network is up
+`betterconn start` survives reboots, forced shutdowns, and power loss. On apply, betterconn writes:
 
-`--stop` removes all three files, disables the systemd unit, reverts `/proc/sys` to the saved backup, restores the original NIC coalescing state, and removes the iptables rules. After `--stop`, rebooting leaves no trace of betterconn.
+- `/etc/modules-load.d/betterconn.conf` — loads `tcp_bbr` and `xt_TOS` early at boot
+- `/etc/sysctl.d/99-betterconn.conf` — all kernel parameters, applied by `systemd-sysctl` at every boot
+- `/etc/betterconn/iptables-apply.sh` — re-applies QoS rules, qdisc, and WiFi power save after boot
+- `/etc/systemd/system/betterconn.service` — systemd unit that runs the boot script then starts the adaptive daemon
+
+`betterconn stop` removes all of the above, stops the daemon, reverts `/proc/sys` to the saved backup, restores the original NIC coalescing state, and removes the iptables rules. After `stop`, rebooting leaves no trace of betterconn.
 
 
 
@@ -41,19 +40,15 @@ Linux network optimizer focused on Debian. Maximizes connection quality for gami
 ## Requirements
 ### Runtime dependencies
 ```bash
-sudo apt install iptables iproute2 kmod iputils-ping curl ethtool
+sudo apt install iptables iproute2 kmod iputils-ping ethtool iw
 ```
-These are pre-installed on most Debian systems, with the possible exception of `ethtool`. The Linux kernel must be 4.9 or newer for BBR support (Debian 9+ ships this by default). ECN requires kernel 2.4+ (all current Debian releases qualify).
+Kernel 4.9 or newer required for BBR (Debian 9+ ships this by default).
 
 ### Build dependencies
 ```bash
 sudo apt install build-essential cmake
 ```
-CMake 3.16 or newer is required. Debian 11 ships cmake 3.18, Debian 12 ships cmake 3.25. No external C++ libraries are needed beyond the standard C++17 library (included with GCC 8+).
-
-
-
-
+CMake 3.16+, GCC with C++17 support (GCC 8+). No external libraries needed.
 
 ## Build
 ```bash
@@ -72,10 +67,22 @@ chmod +x build_debian.sh
 
 
 ## Usage
+- Apply all optimizations and start the adaptive daemon. Persists across reboots:
 ```bash
-sudo betterconn --start      # apply all optimizations (persists across reboots)
-betterconn --status          # live stats: speed, ping, current kernel settings
-sudo betterconn --stop       # revert everything to original settings
-sudo betterconn --clean      # remove all betterconn files from the system (requires --stop first)
-betterconn --help            # usage
+sudo betterconn start
+```
+
+- Revert all settings to their original values and stop the daemon:
+```bash
+sudo betterconn stop
+```
+
+- Show live stats: speed, ping, and current kernel settings:
+```bash
+betterconn status
+```
+
+- Remove all betterconn files from the system. Requires `stop` first:
+```bash
+sudo betterconn clean
 ```

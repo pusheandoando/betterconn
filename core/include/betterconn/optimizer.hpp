@@ -21,7 +21,6 @@ public:
     bool is_active() const;
 
 private:
-    static std::vector<SysctlParam> target_params();
     static std::string sysctl_path(const std::string& key);
     static std::string read_sysctl(const std::string& key);
     static bool write_sysctl(const std::string& key, const std::string& value);
@@ -29,10 +28,17 @@ private:
     static void apply_iptables();
     static void revert_iptables();
     static std::vector<std::string> iptables_add_rules();
-    static void write_persistence(bool bbr_available, const std::string& iface);
+    static void write_persistence(const std::string& iface);
     static void remove_persistence();
     static std::string detect_interface();
     static void apply_nic_tuning(const std::string& iface);
     static void revert_nic_tuning();
+    static bool is_wifi(const std::string& iface);
+    static void apply_interface_qdisc(const std::string& iface);
+    static void revert_interface_qdisc(const std::string& iface);
+    static void apply_wifi_latency(const std::string& iface);
+    static void revert_wifi_latency();
+    static void apply_dns();
+    static void revert_dns();
 };
 }

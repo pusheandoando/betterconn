@@ -18,7 +18,6 @@ namespace betterconn {
 std::string Status::detect_interface() {
     std::ifstream f("/proc/net/route");
     if (!f) return "unknown";
-
     std::string line;
     std::getline(f, line);
     
@@ -26,7 +25,6 @@ std::string Status::detect_interface() {
         std::istringstream ss(line);
         std::string iface, dest;
         ss >> iface >> dest;
-        
         if (dest == "00000000") return iface;
     }
     return "unknown";
@@ -40,15 +38,14 @@ std::pair<double, double> Status::measure_speed(const std::string& iface) {
         while (std::getline(f, line)) {
             auto colon = line.find(':');
             if (colon == std::string::npos) continue;
-
             std::string name = line.substr(0, colon);
             
             auto trim = name.find_first_not_of(' ');
             if (trim != std::string::npos) name = name.substr(trim);
             
             if (name != iface) continue;
-
             std::istringstream ss(line.substr(colon + 1));
+            
             uint64_t rx, tx, dummy;
             ss >> rx;
             for (int i = 0; i < 7; ++i) ss >> dummy;
@@ -66,7 +63,6 @@ std::pair<double, double> Status::measure_speed(const std::string& iface) {
 
 double Status::measure_ping(const std::string& host) {
     std::string cmd = "ping -c 3 -i 0.2 -W 2 " + host + " 2>/dev/null";
-    
     FILE* p = popen(cmd.c_str(), "r");
     if (!p) return -1.0;
     
@@ -96,9 +92,9 @@ double Status::measure_ping(const std::string& host) {
 
 std::string Status::read_sysctl(const std::string& key) {
     std::string path = "/proc/sys/";
-    
     for (char c : key) path += (c == '.') ? '/' : c;
     std::ifstream f(path);
+    
     if (!f) return "n/a";
     std::string val;
     std::getline(f, val);
