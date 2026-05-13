@@ -238,6 +238,7 @@ void Optimizer::apply_wifi_latency(const std::string& iface) {
     }
 
     system("nmcli general reload 2>/dev/null");
+    system(("nmcli device reapply " + iface + " 2>/dev/null").c_str());
 }
 
 void Optimizer::revert_wifi_latency() {
@@ -254,6 +255,7 @@ void Optimizer::revert_wifi_latency() {
     std::error_code ec;
     std::filesystem::remove("/etc/NetworkManager/conf.d/betterconn.conf", ec);
     system("nmcli general reload 2>/dev/null");
+    system(("nmcli device reapply " + iface + " 2>/dev/null").c_str());
 }
 
 void Optimizer::apply_dns() {

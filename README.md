@@ -1,4 +1,4 @@
-# betterconn (v1.0.4)
+# betterconn (v1.0.5)
 Linux network optimizer focused on Debian. Maximizes connection quality for gaming, streaming, and general use by applying proven kernel-level and traffic tuning at runtime, with adaptive real-time adjustment and full backup and restore of original settings. Written by Christian (@pusheandoando)
 
 
@@ -113,15 +113,15 @@ chmod +x build_debian.sh
 ```bash
 sudo betterconn start
 ```
-- Revert all settings to their original values and stop the daemon:
+- Revert all settings to their original values, clean all residual files, and reboot:
 ```bash
 sudo betterconn stop
 ```
 - Show live stats: speed, ping, and current kernel settings:
 ```bash
-betterconn status
+sudo betterconn status
 ```
-- Remove all betterconn files from the system. Requires `stop` first:
+- Remove all betterconn files from the system (only if already stopped):
 ```bash
 sudo betterconn clean
 ```
