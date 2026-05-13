@@ -16,7 +16,7 @@ struct SysctlParam {
 
 class Optimizer {
 public:
-    void apply();
+    void apply(const std::string& forced_iface = "");
     void revert();
     bool is_active() const;
 

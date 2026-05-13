@@ -13,6 +13,7 @@
 namespace betterconn {
 std::filesystem::path Storage::dir() {
     const char* home = std::getenv("HOME");
+    
     if (!home) {
         throw std::runtime_error("[!!] HOME environment variable not set");
     }
@@ -31,6 +32,7 @@ void Storage::save(const std::string& name, const std::string& content) {
     if (!f) {
         throw std::runtime_error("[!!] cannot write storage file: " + name);
     }
+    
     f << content;
 }
 

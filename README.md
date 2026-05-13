@@ -1,5 +1,46 @@
-# betterconn (v1.0.3)
+# betterconn (v1.0.4)
 Linux network optimizer focused on Debian. Maximizes connection quality for gaming, streaming, and general use by applying proven kernel-level and traffic tuning at runtime, with adaptive real-time adjustment and full backup and restore of original settings. Written by Christian (@pusheandoando)
+
+
+
+
+
+## Real-world results
+Measured on a 20 Mbps WiFi link using [Cloudflare Speed Test](https://speed.cloudflare.com/), the recommended tool to benchmark your connection before and after applying betterconn.
+
+<div align="center">
+
+### Default (no betterconn)
+<img 
+  src="assets/screenshots/v1.0.4/speedtest_default.png" 
+  width="720" 
+  alt="Speedtest without betterconn" 
+/>
+
+### Optimized (betterconn active)
+<img 
+  src="assets/screenshots/v1.0.4/speedtest_optim.png" 
+  width="720" 
+  alt="Speedtest with betterconn" 
+/>
+
+</div>
+
+| Metric | Default | With betterconn | Change |
+|---|---|---|---|
+| Download | 24.2 Mbps | 35.9 Mbps | +48.3% |
+| Upload | 5.87 Mbps | 11.6 Mbps | +97.6% |
+| Latency | 178 ms | 29.0 ms | −83.7% |
+| Loaded latency (down) | 216 ms | 36.5 ms | −83.1% |
+| Loaded latency (up) | 172 ms | 29.0 ms | −83.1% |
+| Jitter | 9.53 ms | 8.84 ms | −7.2% |
+| Packet Loss | 0% | 0% | Same |
+
+| Quality Score | Default | With betterconn |
+|---|---|---|
+| Video Streaming | Poor | Good |
+| Online Gaming | Poor | Great |
+| Video Chatting | Average | Great |
 
 
 
@@ -17,21 +58,22 @@ Linux network optimizer focused on Debian. Maximizes connection quality for gami
 - **WiFi power save disabled** — prevents 20–100 ms idle latency spikes caused by the card sleeping between beacon intervals; made permanent via NetworkManager so it survives reconnects
 - **Adaptive NIC interrupt coalescing** via ethtool — dynamically balances interrupt rate between low latency and high throughput
 - **iptables TOS 0x10** (Minimize Delay) for DNS, HTTP/S, Steam, and common game UDP ports — [RFC 791](https://www.rfc-editor.org/rfc/rfc791)
-- **Real-time adaptive tuner** — runs as a background daemon; every 3 seconds reads `/proc/net/wireless` (RSSI, TX retries), `/proc/net/dev` (live throughput), and RTT via ping, then adjusts buffers, `netdev_budget`, `tcp_notsent_lowat`, and the fq_codel target without any user interaction
+- **Real-time adaptive tuner** — runs as a background daemon; reads `/proc/net/wireless` (RSSI, TX retries), `/proc/net/dev` (live throughput), and RTT via ping, then adjusts buffers, `netdev_budget`, `tcp_notsent_lowat`, and the fq_codel target without any user interaction
 
 
 
 
 
-## Persistence
-`betterconn start` survives reboots, forced shutdowns, and power loss. On apply, betterconn writes:
+## Security notice
+betterconn prioritizes maximizing internet speed and stability over network security, betterconn is designed for trusted networks only (home, personal workplace). Do not use it on public networks such as airports, hotels, cafes, or universities where untrusted devices share the same network segment.
 
-- `/etc/modules-load.d/betterconn.conf` — loads `tcp_bbr` and `xt_TOS` early at boot
-- `/etc/sysctl.d/99-betterconn.conf` — all kernel parameters, applied by `systemd-sysctl` at every boot
-- `/etc/betterconn/iptables-apply.sh` — re-applies QoS rules, qdisc, and WiFi power save after boot
-- `/etc/systemd/system/betterconn.service` — systemd unit that runs the boot script then starts the adaptive daemon
-
-`betterconn stop` removes all of the above, stops the daemon, reverts `/proc/sys` to the saved backup, restores the original NIC coalescing state, and removes the iptables rules. After `stop`, rebooting leaves no trace of betterconn.
+The following settings applied by betterconn reduce your security posture:
+- **TCP timestamps** — can expose system uptime to remote hosts
+- **TCP Fast Open** — slightly weakens SYN-flood protection
+- **Ephemeral port range widened** to 1024–65535
+- **Socket buffer sizes increased** significantly, raising per-connection memory usage
+- **iptables TOS marking** applied to DNS, HTTP/S, and common game ports
+- **WiFi power saving disabled** permanently via NetworkManager
 
 
 
@@ -71,18 +113,28 @@ chmod +x build_debian.sh
 ```bash
 sudo betterconn start
 ```
-
 - Revert all settings to their original values and stop the daemon:
 ```bash
 sudo betterconn stop
 ```
-
 - Show live stats: speed, ping, and current kernel settings:
 ```bash
 betterconn status
 ```
-
 - Remove all betterconn files from the system. Requires `stop` first:
 ```bash
 sudo betterconn clean
 ```
+
+
+
+
+
+## Persistence
+`betterconn start` survives reboots, forced shutdowns, and power loss. On apply, betterconn writes:
+- `/etc/modules-load.d/betterconn.conf` — loads `tcp_bbr` and `xt_TOS` early at boot
+- `/etc/sysctl.d/99-betterconn.conf` — all kernel parameters, applied by `systemd-sysctl` at every boot
+- `/etc/betterconn/iptables-apply.sh` — re-applies QoS rules, qdisc, and WiFi power save after boot
+- `/etc/systemd/system/betterconn.service` — systemd unit that runs the boot script then starts the adaptive daemon
+
+`betterconn stop` removes all of the above, stops the daemon, reverts `/proc/sys` to the saved backup, restores the original NIC coalescing state, and removes the iptables rules. After `stop`, rebooting leaves no trace of betterconn.
