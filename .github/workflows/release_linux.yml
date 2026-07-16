@@ -9,6 +9,8 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
+    container:
+      image: debian:11
 
     steps:
       - name: Checkout
@@ -41,7 +43,9 @@ jobs:
 
       - name: Install build dependencies
         if: steps.check_tag.outputs.exists == 'false'
-        run: sudo apt-get install -y build-essential cmake dpkg-dev
+        run: |
+          apt-get update
+          apt-get install -y build-essential cmake dpkg-dev git
 
       - name: Build Linux binary
         if: steps.check_tag.outputs.exists == 'false'
