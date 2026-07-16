@@ -1,4 +1,4 @@
-# betterconn (v1.0.5)
+# betterconn (v1.0.6)
 Linux network optimizer focused on Debian. Maximizes connection quality for gaming, streaming, and general use by applying proven kernel-level and traffic tuning at runtime, with adaptive real-time adjustment and full backup and restore of original settings. Written by Christian (@pusheandoando)
 
 
@@ -59,6 +59,10 @@ Measured on a 20 Mbps WiFi link using [Cloudflare Speed Test](https://speed.clou
 - **Adaptive NIC interrupt coalescing** via ethtool — dynamically balances interrupt rate between low latency and high throughput
 - **iptables TOS 0x10** (Minimize Delay) for DNS, HTTP/S, Steam, and common game UDP ports — [RFC 791](https://www.rfc-editor.org/rfc/rfc791)
 - **Real-time adaptive tuner** — runs as a background daemon; reads `/proc/net/wireless` (RSSI, TX retries), `/proc/net/dev` (live throughput), and RTT via ping, then adjusts buffers, `netdev_budget`, `tcp_notsent_lowat`, and the fq_codel target without any user interaction
+- **WiFi channel survey monitoring** — periodically samples `iw dev <iface> survey dump`, a standard mac80211 API (`NL80211_CMD_GET_SURVEY`) exposed by essentially every Linux WiFi driver with no firmware patching or special hardware required, to read per-channel busy/receive/transmit time and noise floor; this lets the tuner anticipate ambient airtime congestion and preemptively tighten the fq_codel target and retry-sensitive buffering before it shows up as RTT or retry spikes on the local link — [Ending the Anomaly, USENIX ATC 2017](https://www.usenix.org/conference/atc17/technical-sessions/presentation/hoilan-jorgesen), [Law, USENIX NSDI 2026](https://www.usenix.org/conference/nsdi26/presentation/shen-yibin), [Mortise, USENIX NSDI 2026](https://www.usenix.org/conference/nsdi26/presentation/shen-yixin)
+- **Adaptive tiered traffic prioritization** — replaces the flat `fq_codel` root qdisc with an `htb` hierarchy split into four bandwidth tiers (Hot, Warm, Cool, Cold), each with its own `fq_codel` leaf so per-flow fairness is preserved within every tier; a background thread polls the currently focused window every 500 ms and combines focus state, recent input activity, and live per-process network activity into a continuously updated priority score for every observed process, moving each PID into the `cgroup v2` control group matching its current tier (tagged with `iptables -m cgroup --path -j MARK`), with hysteresis and minimum dwell time applied before a process changes tier to avoid rapid oscillation, and periodic bandwidth rebalancing across tiers based on aggregate tier demand — [net_cls/net_prio kernel docs](https://docs.kernel.org/admin-guide/cgroup-v1/net_cls.html), [cgroup v2 xt_cgroup match, LWN](https://lwn.net/Articles/679786/), [tc-htb(8)](https://man7.org/linux/man-pages/man8/tc-htb.8.html)
+
+Focused-window detection uses `xdotool` on X11 sessions. On Wayland, Wayland's security model deliberately does not expose a compositor-agnostic way for a client to query the focused window's PID, so betterconn queries the compositor's own IPC instead: `swaymsg` for Sway and other wlroots-based compositors, and `hyprctl` for Hyprland. The correct backend is detected automatically at startup, in that order, with no configuration needed. On compositors without a supported IPC (for example GNOME/Mutter or KWin), this feature degrades gracefully and all traffic falls back to the lowest priority tier. In addition to focus tracking, betterconn also predicts companion processes that tend to be used alongside the focused one (for example a game and its voice-chat client) by detecting alternating focus patterns over time, and pre-promotes their priority tier accordingly.
 
 
 
@@ -66,6 +70,8 @@ Measured on a 20 Mbps WiFi link using [Cloudflare Speed Test](https://speed.clou
 
 ## Security notice
 betterconn prioritizes maximizing internet speed and stability over network security, betterconn is designed for trusted networks only (home, personal workplace). Do not use it on public networks such as airports, hotels, cafes, or universities where untrusted devices share the same network segment.
+
+betterconn also runs a background thread that polls the currently focused window every 500 ms, via `xdotool` on X11 or via the compositor's own IPC on supported Wayland compositors (`swaymsg` for Sway/wlroots, `hyprctl` for Hyprland), feeding a scoring engine that ranks every observed process into one of four bandwidth tiers (Hot, Warm, Cool, Cold) based on focus recency, input activity, and live network activity. This means the process ID of whichever application is currently focused, along with the PIDs of other processes with detected network activity, is continuously read for as long as betterconn is running. This data never leaves the machine, is not written to persistent storage beyond the transient cgroup assignment, and stops the moment `betterconn stop` is run.
 
 The following settings applied by betterconn reduce your security posture:
 - **TCP timestamps** — can expose system uptime to remote hosts
@@ -82,7 +88,7 @@ The following settings applied by betterconn reduce your security posture:
 ## Requirements
 ### Runtime dependencies
 ```bash
-sudo apt install iptables iproute2 kmod iputils-ping ethtool iw
+sudo apt install iptables iproute2 kmod iputils-ping ethtool iw xdotool
 ```
 Kernel 4.9 or newer required for BBR (Debian 9+ ships this by default).
 

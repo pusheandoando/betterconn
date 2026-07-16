@@ -5,6 +5,14 @@ add_library(betterconn_core
     src/status.cpp
     src/cleaner.cpp
     src/tuner.cpp
+    src/survey_monitor.cpp
+    src/focus_priority.cpp
+    src/window_focus_backend.cpp
+    src/proc_activity.cpp
+    src/app_classifier.cpp
+    src/priority_score.cpp
+    src/context_persistence.cpp
+    src/priority_scheduler.cpp
 )
 
 target_include_directories(betterconn_core PUBLIC include)

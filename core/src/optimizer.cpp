@@ -1,13 +1,14 @@
 // core/src/optimizer.cpp
 #include "betterconn/optimizer.hpp"
 #include "betterconn/storage.hpp"
+#include "betterconn/priority_scheduler.hpp"
 
 #include <cstdlib>
-#include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <sstream>
+#include <iostream>
 #include <stdexcept>
+#include <filesystem>
 
 
 
@@ -17,16 +18,21 @@ namespace betterconn {
 static std::vector<SysctlParam> base_params() {
     return {
         {"net.core.default_qdisc", "fq_codel"},
+
         {"net.ipv4.tcp_congestion_control", "bbr"},
+
         {"net.core.rmem_max", "16777216"},
         {"net.core.wmem_max", "16777216"},
         {"net.core.rmem_default", "1048576"},
         {"net.core.wmem_default", "1048576"},
+
         {"net.ipv4.tcp_rmem", "4096 1048576 16777216"},
         {"net.ipv4.tcp_wmem", "4096 1048576 16777216"},
+
         {"net.core.netdev_max_backlog", "5000"},
         {"net.core.netdev_budget", "500"},
         {"net.core.netdev_budget_usecs", "8000"},
+
         {"net.ipv4.tcp_fastopen", "3"},
         {"net.ipv4.tcp_window_scaling", "1"},
         {"net.ipv4.tcp_timestamps", "1"},
@@ -61,6 +67,7 @@ std::string Optimizer::detect_interface() {
         
         if (dest == "00000000") return iface;
     }
+
     return "";
 }
 
@@ -72,6 +79,7 @@ std::string Optimizer::sysctl_path(const std::string& key) {
     std::string path = "/proc/sys/";
     
     for (char c : key) path += (c == '.') ? '/' : c;
+    
     return path;
 }
 
@@ -82,6 +90,7 @@ std::string Optimizer::read_sysctl(const std::string& key) {
     
     std::string val;
     std::getline(f, val);
+    
     return val;
 }
 
@@ -91,6 +100,7 @@ bool Optimizer::write_sysctl(const std::string& key, const std::string& value) {
     if (!f) return false;
     
     f << value << "\n";
+    
     return true;
 }
 
@@ -122,6 +132,7 @@ void Optimizer::apply_iptables() {
         std::string cmd = check + " 2>/dev/null || " + rule + " 2>/dev/null";
         if (system(cmd.c_str()) != 0) ++failed;
     }
+
     if (failed > 0) {
         std::cerr << "[!!] " << failed << " iptables QoS rule(s) could not be applied (non-critical)\n";
     }
@@ -207,6 +218,22 @@ void Optimizer::revert_interface_qdisc(const std::string& iface) {
     Storage::remove_file("tc_iface");
 }
 
+void Optimizer::apply_focus_priority(const std::string& iface) {
+    if (iface.empty()) return;
+
+    PriorityScheduler::apply_cgroup_and_marking();
+    PriorityScheduler::apply_qdisc_hierarchy(iface);
+    Storage::save("focus_priority_iface", iface);
+}
+
+void Optimizer::revert_focus_priority(const std::string& iface) {
+    if (iface.empty()) return;
+
+    PriorityScheduler::revert_qdisc_hierarchy(iface);
+    PriorityScheduler::revert_cgroup_and_marking();
+    Storage::remove_file("focus_priority_iface");
+}
+
 void Optimizer::apply_wifi_latency(const std::string& iface) {
     if (iface.empty() || !is_wifi(iface)) return;
 
@@ -220,6 +247,7 @@ void Optimizer::apply_wifi_latency(const std::string& iface) {
         if (fgets(buf, sizeof(buf), p)) {
             if (std::string(buf).find("off") != std::string::npos) original_pm = "off";
         }
+        
         pclose(p);
     }
 
@@ -331,7 +359,16 @@ void Optimizer::write_persistence(const std::string& iface) {
             if (!iface.empty()) {
                 f << "ethtool -C " << iface << " adaptive-rx on adaptive-tx on 2>/dev/null || true\n";
                 f << "tc qdisc replace dev " << iface << " root fq_codel target 5ms interval 100ms 2>/dev/null || true\n";
-                
+                f << "iptables -t mangle -A OUTPUT -m cgroup --path betterconn_focus -j MARK --set-mark 0x1f 2>/dev/null || true\n";
+                f << "tc qdisc del dev " << iface << " root 2>/dev/null || true\n";
+                f << "tc qdisc replace dev " << iface << " root handle 1: htb default 20 2>/dev/null || true\n";
+                f << "tc class add dev " << iface << " parent 1: classid 1:1 htb rate 1000mbit ceil 1000mbit 2>/dev/null || true\n";
+                f << "tc class add dev " << iface << " parent 1:1 classid 1:10 htb rate 300mbit ceil 1000mbit prio 1 2>/dev/null || true\n";
+                f << "tc class add dev " << iface << " parent 1:1 classid 1:20 htb rate 700mbit ceil 1000mbit prio 2 2>/dev/null || true\n";
+                f << "tc qdisc add dev " << iface << " parent 1:10 handle 10: fq_codel target 5ms interval 100ms 2>/dev/null || true\n";
+                f << "tc qdisc add dev " << iface << " parent 1:20 handle 20: fq_codel target 5ms interval 100ms 2>/dev/null || true\n";
+                f << "tc filter add dev " << iface << " parent 1: protocol ip prio 1 handle 0x1f fw flowid 1:10 2>/dev/null || true\n";
+
                 if (is_wifi(iface)) {
                     f << "iw dev " << iface << " set power_save off 2>/dev/null || true\n";
                 }
@@ -424,6 +461,7 @@ void Optimizer::apply(const std::string& forced_iface) {
     }
 
     apply_interface_qdisc(iface);
+    apply_focus_priority(iface);
     apply_wifi_latency(iface);
     apply_nic_tuning(iface);
     write_persistence(iface);
@@ -461,6 +499,10 @@ void Optimizer::revert() {
     }
 
     revert_iptables();
+
+    if (Storage::exists("focus_priority_iface")) {
+        revert_focus_priority(Storage::load("focus_priority_iface"));
+    }
 
     if (Storage::exists("tc_iface")) {
         revert_interface_qdisc(Storage::load("tc_iface"));

@@ -1,5 +1,4 @@
 # CMakeLists.txt
-# CMakeLists.txt
 cmake_minimum_required(VERSION 3.16)
 
 file(STRINGS "${CMAKE_SOURCE_DIR}/VERSION" BETTERCONN_VERSION LIMIT_COUNT 1)

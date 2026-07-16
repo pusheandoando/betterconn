@@ -6,16 +6,16 @@
 #include "betterconn/storage.hpp"
 #include "betterconn/tuner.hpp"
 
+#include <string>
 #include <cctype>
+#include <sstream>
 #include <cstring>
-#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <signal.h>
-#include <sstream>
-#include <stdexcept>
-#include <string>
 #include <unistd.h>
+#include <stdexcept>
+#include <filesystem>
 
 
 
@@ -26,8 +26,20 @@ static constexpr const char* kVersion = BETTERCONN_VERSION;
 namespace {
 volatile sig_atomic_t g_stop = 0;
 
+constexpr int kRebootDelaySeconds = 10;
+
 void on_signal(int) {
     g_stop = 1;
+}
+
+void reboot_with_countdown() {
+    for (int remaining = kRebootDelaySeconds; remaining >= 1; --remaining) {
+        std::cout << "\r" CLR_YELLOW "[..] rebooting system in " << remaining << " seconds...   " CLR_RESET << std::flush;
+        sleep(1);
+    }
+
+    std::cout << "\n";
+    system("systemctl reboot");
 }
 
 void print_help() {
@@ -59,6 +71,14 @@ bool confirm_security_warning() {
     std::cout << CLR_WHITE "  Only use it on networks you fully trust (home, personal workplace).\n";
     std::cout << "  Do NOT use it on public networks (airports, hotels, cafes, universities).\n" CLR_RESET;
     std::cout << "\n";
+    std::cout << CLR_YELLOW "  betterconn runs a background thread that polls the active window every 500ms\n";
+    std::cout << "  via xdotool on X11, or via the compositor's IPC on supported Wayland compositors\n";
+    std::cout << "  (Sway/wlroots, Hyprland), and assigns the process currently in focus to a\n";
+    std::cout << "  high-priority network class. This means the process ID of whatever application\n";
+    std::cout << "  you are actively using is continuously read while betterconn is running. This\n";
+    std::cout << "  happens entirely on your own machine, nothing leaves your system, and it stops\n";
+    std::cout << "  as soon as you run betterconn stop.\n" CLR_RESET;
+    std::cout << "\n";
     std::cout << CLR_LRED "  betterconn will reboot the system after applying changes for all settings to take effect.\n";
     std::cout << "  Make sure you have saved all open work and closed all applications before continuing\n";
     std::cout << "  to avoid any data loss.\n" CLR_RESET;
@@ -67,7 +87,9 @@ bool confirm_security_warning() {
 
     std::string input;
     std::getline(std::cin, input);
+    
     for (char& c : input) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    
     return input == "y" || input == "yes";
 }
 
@@ -119,8 +141,11 @@ void cmd_list() {
         } else {
             std::cout << "  " CLR_CYAN << name << CLR_RESET;
         }
+
         if (is_default) std::cout << CLR_LGREEN "  [default]" CLR_RESET;
+
         if (wifi) std::cout << CLR_LCYAN "  [wifi]" CLR_RESET;
+        
         std::cout << "\n";
     }
 
@@ -192,9 +217,7 @@ int main(int argc, char* argv[]) {
             std::cout << CLR_LGREEN "[OK] optimizations applied\n" CLR_RESET;
             betterconn::Status().print();
 
-            std::cout << CLR_YELLOW "[..] rebooting system in 5 seconds...\n" CLR_RESET;
-            sleep(5);
-            system("systemctl reboot");
+            reboot_with_countdown();
         } else if (cmd == "stop") {
             require_root();
 
@@ -222,9 +245,7 @@ int main(int argc, char* argv[]) {
             betterconn::Cleaner().run();
             sleep(2);
 
-            std::cout << CLR_YELLOW "[..] rebooting system in 5 seconds...\n" CLR_RESET;
-            sleep(5);
-            system("systemctl reboot");
+            reboot_with_countdown();
         } else if (cmd == "status") {
             require_root();
             betterconn::Status().print();
@@ -232,13 +253,16 @@ int main(int argc, char* argv[]) {
             cmd_list();
         } else if (cmd == "clean") {
             require_root();
+            
             if (betterconn::Storage::exists("state") && betterconn::Storage::load("state") == "active") {
                 std::cerr << CLR_LRED "[!!] betterconn is active, run stop first\n" CLR_RESET;
                 return 1;
             }
+
             betterconn::Cleaner().run();
         } else if (cmd == "daemon") {
             require_root();
+            
             if (!betterconn::Storage::exists("state") ||
                 betterconn::Storage::load("state") != "active") {
                 std::cerr << CLR_LRED "[!!] betterconn is not active, run start first\n" CLR_RESET;
@@ -264,10 +288,12 @@ int main(int argc, char* argv[]) {
         } else {
             std::cerr << CLR_LRED "[!!] unknown option: " << cmd << "\n" CLR_RESET;
             std::cerr << CLR_WHITE "run: betterconn -h\n" CLR_RESET;
+            
             return 1;
         }
     } catch (const std::exception& e) {
         std::cerr << CLR_LRED "[!!] " << e.what() << "\n" CLR_RESET;
+        
         return 1;
     }
 

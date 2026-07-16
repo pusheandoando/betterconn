@@ -5,11 +5,11 @@
 
 #include <chrono>
 #include <cstdio>
+#include <thread>
 #include <fstream>
 #include <iomanip>
-#include <iostream>
 #include <sstream>
-#include <thread>
+#include <iostream>
 
 
 
@@ -67,8 +67,8 @@ std::pair<double, double> Status::measure_speed(const std::string& iface) {
 
     auto [rx0, tx0] = read_bytes();
     std::this_thread::sleep_for(std::chrono::seconds(1));
-
     auto [rx1, tx1] = read_bytes();
+    
     return {static_cast<double>(rx1 - rx0), static_cast<double>(tx1 - tx0)};
 }
 
@@ -114,6 +114,7 @@ std::string Status::read_sysctl(const std::string& key) {
 
     std::string val;
     std::getline(f, val);
+    
     return val;
 }
 

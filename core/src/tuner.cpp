@@ -1,15 +1,15 @@
 // core/src/tuner.cpp
 #include "betterconn/tuner.hpp"
 
-#include <algorithm>
-#include <chrono>
 #include <cmath>
+#include <chrono>
 #include <cstdio>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
 #include <string>
 #include <thread>
+#include <fstream>
+#include <sstream>
+#include <algorithm>
+#include <filesystem>
 
 
 
@@ -20,6 +20,7 @@ static constexpr int kSampleIntervalMs = 200;
 static constexpr int kBufferIntervalMs = 400;
 static constexpr int kQdiscIntervalMs = 600;
 static constexpr int kWifiIntervalMs = 600;
+static constexpr int kRttIntervalMs = 1000;
 
 static constexpr double kRttHighMs = 55.0;
 static constexpr double kRttLowMs = 20.0;
@@ -27,6 +28,9 @@ static constexpr double kRssiPoorDbm = -75.0;
 static constexpr double kRssiFairDbm = -65.0;
 static constexpr double kRetryHighDelta = 5.0;
 static constexpr double kRetryLowDelta = 1.0;
+
+static constexpr double kBusyRatioHigh = 0.35;
+static constexpr double kBusyRatioLow = 0.15;
 
 static constexpr uint64_t kBufMin = 4194304;
 static constexpr uint64_t kBufMax = 33554432;
@@ -41,8 +45,8 @@ void Tuner::write_sysctl(const std::string& key, const std::string& value) {
 }
 
 void Tuner::set_qdisc_target(const std::string& iface, int target_ms) {
-    std::string cmd = "tc qdisc replace dev " + iface + " root fq_codel target " + std::to_string(target_ms) + "ms" " interval " + std::to_string(target_ms * 20) + "ms 2>/dev/null";
-    system(cmd.c_str());
+    (void)iface;
+    (void)target_ms;
 }
 
 uint64_t Tuner::compute_bdp_buf(double rx_bps, double rtt_ms) {
@@ -59,6 +63,7 @@ uint64_t Tuner::compute_bdp_buf(double rx_bps, double rtt_ms) {
     uint64_t align = 4096;
     
     buf = (buf + align - 1) & ~(align - 1);
+    
     return buf;
 }
 
@@ -103,8 +108,10 @@ static uint64_t read_iface_rx(const std::string& iface) {
         std::istringstream ss(line.substr(colon + 1));
         uint64_t rx;
         ss >> rx;
+        
         return rx;
     }
+
     return 0ULL;
 }
 
@@ -126,26 +133,29 @@ static uint64_t read_iface_tx(const std::string& iface) {
         std::istringstream ss(line.substr(colon + 1));
         uint64_t rx, dummy, tx;
         ss >> rx;
+        
         for (int i = 0; i < 7; ++i) ss >> dummy;
         ss >> tx;
+        
         return tx;
     }
+    
     return 0ULL;
 }
 
 double Tuner::read_rx_bps(const std::string& iface, int ms) {
     uint64_t before = read_iface_rx(iface);
     std::this_thread::sleep_for(std::chrono::milliseconds(ms));
-    
     uint64_t after = read_iface_rx(iface);
+
     return static_cast<double>(after - before) * 8.0 / (ms / 1000.0);
 }
 
 double Tuner::read_tx_bps(const std::string& iface, int ms) {
     uint64_t before = read_iface_tx(iface);
     std::this_thread::sleep_for(std::chrono::milliseconds(ms));
-    
     uint64_t after = read_iface_tx(iface);
+
     return static_cast<double>(after - before) * 8.0 / (ms / 1000.0);
 }
 
@@ -171,8 +181,10 @@ double Tuner::read_rssi_dbm(const std::string& iface) {
         std::istringstream ss(line.substr(colon + 1));
         double status, link, level;
         ss >> status >> link >> level;
+        
         return level;
     }
+
     return 0.0;
 }
 
@@ -198,8 +210,10 @@ double Tuner::read_tx_retries(const std::string& iface) {
         
         double status, link, level, noise, nwid, crypt, frag, retry;
         ss >> status >> link >> level >> noise >> nwid >> crypt >> frag >> retry;
+        
         return retry;
     }
+    
     return 0.0;
 }
 
@@ -275,7 +289,9 @@ void Tuner::buffer_loop(std::atomic<bool>& running, SharedSample& s) {
     }
 }
 
-void Tuner::qdisc_loop(const std::string& iface, std::atomic<bool>& running, SharedSample& s) {
+void Tuner::qdisc_loop(const std::string& iface, std::atomic<bool>& running, SharedSample& s, SurveyMonitor& survey, PriorityScheduler& scheduler) {
+    (void)iface;
+    (void)scheduler;
     uint64_t last_seq = 0;
 
     while (running.load(std::memory_order_relaxed)) {
@@ -288,27 +304,30 @@ void Tuner::qdisc_loop(const std::string& iface, std::atomic<bool>& running, Sha
         double rtt = s.rtt_ms.load(std::memory_order_relaxed);
         double rx_bps = s.rx_bps.load(std::memory_order_relaxed);
 
-        int target_ms = 5;
         std::string notsent = "131072";
         std::string budget = "500";
 
         if (rtt > 0.0 && rtt > kRttHighMs) {
-            target_ms = 8;
             notsent = "65536";
             budget = "400";
         } else if (rtt > 0.0 && rtt < kRttLowMs) {
-            target_ms = 4;
             notsent = "131072";
             budget = "600";
         } else if (rx_bps > 80.0 * 1024.0 * 1024.0 * 8.0) {
-            target_ms = 4;
             notsent = "262144";
             budget = "700";
         }
 
+        if (survey.has_data()) {
+            double busy_ratio = survey.busy_ratio();
+
+            if (busy_ratio > kBusyRatioHigh) {
+                notsent = "65536";
+            }
+        }
+
         write_sysctl("net.ipv4.tcp_notsent_lowat", notsent);
         write_sysctl("net.core.netdev_budget", budget);
-        set_qdisc_target(iface, target_ms);
     }
 }
 
@@ -351,6 +370,18 @@ void Tuner::wifi_loop(const std::string& iface, std::atomic<bool>& running, Shar
     }
 }
 
+void Tuner::rtt_loop(std::atomic<bool>& running, SharedSample& s) {
+    while (running.load(std::memory_order_relaxed)) {
+        double rtt = read_rtt_ms();
+
+        if (rtt > 0.0) {
+            s.rtt_ms.store(rtt, std::memory_order_relaxed);
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(kRttIntervalMs));
+    }
+}
+
 void Tuner::start(const std::string& iface) {
     running_.store(true, std::memory_order_relaxed);
 
@@ -363,19 +394,31 @@ void Tuner::start(const std::string& iface) {
     });
 
     qdisc_thread_ = std::thread([iface, this]() {
-        qdisc_loop(iface, running_, sample_);
+        qdisc_loop(iface, running_, sample_, survey_monitor_, priority_scheduler_);
     });
 
     wifi_thread_ = std::thread([iface, this]() {
         wifi_loop(iface, running_, sample_);
     });
+
+    rtt_thread_ = std::thread([this]() {
+        rtt_loop(running_, sample_);
+    });
+
+    survey_monitor_.start(iface);
+    priority_scheduler_.start(iface);
 }
 
 void Tuner::stop() {
     running_.store(false, std::memory_order_relaxed);
+
     if (sampler_thread_.joinable()) sampler_thread_.join();
     if (buffer_thread_.joinable()) buffer_thread_.join();
     if (qdisc_thread_.joinable()) qdisc_thread_.join();
     if (wifi_thread_.joinable()) wifi_thread_.join();
+    if (rtt_thread_.joinable()) rtt_thread_.join();
+
+    survey_monitor_.stop();
+    priority_scheduler_.stop();
 }
 }

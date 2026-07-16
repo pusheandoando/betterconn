@@ -1,6 +1,9 @@
 // core/include/betterconn/tuner.hpp
 #pragma once
 
+#include "betterconn/survey_monitor.hpp"
+#include "betterconn/priority_scheduler.hpp"
+
 #include <atomic>
 #include <string>
 #include <thread>
@@ -29,7 +32,11 @@ private:
     std::thread buffer_thread_;
     std::thread qdisc_thread_;
     std::thread wifi_thread_;
+    std::thread rtt_thread_;
     std::atomic<bool> running_{false};
+
+    SurveyMonitor survey_monitor_;
+    PriorityScheduler priority_scheduler_;
 
     struct alignas(64) SharedSample {
         std::atomic<double> rtt_ms{-1.0};
@@ -44,8 +51,8 @@ private:
 
     static void sampler_loop(const std::string& iface, std::atomic<bool>& running, SharedSample& s);
     static void buffer_loop(std::atomic<bool>& running, SharedSample& s);
-    static void qdisc_loop(const std::string& iface, std::atomic<bool>& running, SharedSample& s);
     static void wifi_loop(const std::string& iface, std::atomic<bool>& running, SharedSample& s);
+    static void rtt_loop(std::atomic<bool>& running, SharedSample& s);
 
     static double read_rtt_ms();
     static double read_rx_bps(const std::string& iface, int ms);
@@ -56,5 +63,6 @@ private:
     static void write_sysctl(const std::string& key, const std::string& value);
     static void set_qdisc_target(const std::string& iface, int target_ms);
     static uint64_t compute_bdp_buf(double rx_bps, double rtt_ms);
+    static void qdisc_loop(const std::string& iface, std::atomic<bool>& running, SharedSample& s, SurveyMonitor& survey, PriorityScheduler& scheduler);
 };
 }

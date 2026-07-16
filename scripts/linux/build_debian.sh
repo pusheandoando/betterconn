@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
-# build_debian.sh
+# scripts/linux/build_debian.sh
+
+
+
+
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VERSION="$(cat "${SCRIPT_DIR}/VERSION")"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+VERSION="$(cat "${ROOT_DIR}/VERSION")"
 PKG_NAME="betterconn"
-BUILD_DIR="${SCRIPT_DIR}/build"
-DIST_DIR="${SCRIPT_DIR}/dist"
+BUILD_DIR="${ROOT_DIR}/build"
+DIST_DIR="${ROOT_DIR}/dist"
 ARCH="$(dpkg --print-architecture 2>/dev/null || uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
 STAGING_DIR="${BUILD_DIR}/.deb_staging/${PKG_NAME}_${VERSION}_${ARCH}"
 
@@ -19,7 +24,7 @@ fi
 rm -rf "${BUILD_DIR}"
 mkdir -p "${DIST_DIR}"
 
-cmake -S "${SCRIPT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release
+cmake -S "${ROOT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release
 cmake --build "${BUILD_DIR}" -j"$(nproc)"
 
 mkdir -p "${STAGING_DIR}/usr/bin"
@@ -35,7 +40,7 @@ Architecture: ${ARCH}
 Maintainer: Christian <pusheandoando@github>
 Section: net
 Priority: optional
-Depends: iptables, iproute2, kmod, iputils-ping, curl, ethtool, iw
+Depends: iptables, iproute2, kmod, iputils-ping, curl, ethtool, iw, xdotool
 Description: betterconn - Linux network optimizer for Debian
  Maximizes internet connection quality on Debian-based systems.
  Features adaptive real-time tuning with WiFi priority support.

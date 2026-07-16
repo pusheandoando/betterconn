@@ -45,6 +45,7 @@ std::string Storage::load(const std::string& name) {
     
     std::ostringstream ss;
     ss << f.rdbuf();
+    
     return ss.str();
 }
 

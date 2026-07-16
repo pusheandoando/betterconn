@@ -1,17 +1,22 @@
 #!/usr/bin/env bash
-# build.sh
+# scripts/linux/build.sh
+
+
+
+
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VERSION="$(cat "${SCRIPT_DIR}/VERSION")"
-BUILD_DIR="${SCRIPT_DIR}/build"
-DIST_DIR="${SCRIPT_DIR}/dist"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+VERSION="$(cat "${ROOT_DIR}/VERSION")"
+BUILD_DIR="${ROOT_DIR}/build"
+DIST_DIR="${ROOT_DIR}/dist"
 
 rm -rf "${BUILD_DIR}"
 mkdir -p "${DIST_DIR}"
 
-cmake -S "${SCRIPT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release
+cmake -S "${ROOT_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release
 cmake --build "${BUILD_DIR}" -j"$(nproc)"
 
 cp "${BUILD_DIR}/cli/betterconn" "${DIST_DIR}/betterconn"
