@@ -16,4 +16,8 @@ add_library(betterconn_core
 )
 
 target_include_directories(betterconn_core PUBLIC include)
+
+find_package(Threads REQUIRED)
+
 target_link_libraries(betterconn_core PRIVATE compiler_options)
+target_link_libraries(betterconn_core PUBLIC Threads::Threads)
