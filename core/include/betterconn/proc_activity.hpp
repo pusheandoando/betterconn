@@ -2,6 +2,7 @@
 #pragma once
 
 #include <string>
+#include <cstdint>
 #include <unordered_set>
 
 
