@@ -9,12 +9,12 @@ add_library(betterconn_core
     src/focus_priority.cpp
     src/window_focus_backend.cpp
     src/proc_activity.cpp
-    src/app_classifier.cpp
-    src/priority_score.cpp
     src/context_persistence.cpp
     src/priority_scheduler.cpp
+    src/focus_decay_tracker.cpp
+    src/network_info.cpp
+    src/bufferbloat_shaper.cpp
 )
-
 target_include_directories(betterconn_core PUBLIC include)
 
 find_package(Threads REQUIRED)

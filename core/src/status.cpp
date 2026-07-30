@@ -59,6 +59,7 @@ std::pair<double, double> Status::measure_speed(const std::string& iface) {
             for (int i = 0; i < 7; ++i) ss >> dummy;
 
             ss >> tx;
+            
             return {rx, tx};
         }
 

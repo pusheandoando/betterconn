@@ -38,6 +38,8 @@ private:
     static void revert_interface_qdisc(const std::string& iface);
     static void apply_wifi_latency(const std::string& iface);
     static void revert_wifi_latency();
+    static void apply_bufferbloat_shaping(const std::string& iface);
+    static void revert_bufferbloat_shaping(const std::string& iface);
     static void apply_dns();
     static void revert_dns();
     static void apply_focus_priority(const std::string& iface);

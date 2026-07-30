@@ -1,7 +1,7 @@
 // core/include/betterconn/priority_scheduler.hpp
 #pragma once
 
-#include "betterconn/priority_score.hpp"
+#include "betterconn/focus_decay_tracker.hpp"
 #include "betterconn/context_persistence.hpp"
 #include "betterconn/window_focus_backend.hpp"
 
@@ -53,14 +53,13 @@ private:
     static constexpr int kColdFwMark = 0x1d;
 
     static void poll_loop(const std::string& iface, std::atomic<bool>& running);
-    static PriorityTier tier_for_score(double score);
-    static bool tier_boundary_crossed_with_margin(double score, PriorityTier current_tier, PriorityTier proposed_tier);
+    static PriorityTier tier_for_decay(double decay_factor);
+    static bool tier_boundary_crossed_with_margin(double decay_factor, PriorityTier current_tier, PriorityTier proposed_tier);
     static bool tier_mass_shifted_significantly(const std::vector<double>& previous, const std::vector<double>& current);
     static const char* tier_cgroup_name(PriorityTier tier);
     static int tier_fw_mark(PriorityTier tier);
     static void move_pid_to_tier(int pid, PriorityTier tier);
     static void rebalance_tier_bandwidth(const std::string& iface, const std::vector<double>& tier_mass);
-    static std::string read_process_name(int pid);
     static bool cgroup_v2_mounted();
 };
 }

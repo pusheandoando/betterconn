@@ -2,6 +2,7 @@
 #include "betterconn/optimizer.hpp"
 #include "betterconn/storage.hpp"
 #include "betterconn/priority_scheduler.hpp"
+#include "betterconn/bufferbloat_shaper.hpp"
 
 #include <cstdlib>
 #include <fstream>
@@ -130,6 +131,7 @@ void Optimizer::apply_iptables() {
         if (pos != std::string::npos) check.replace(pos, 4, " -C ");
         
         std::string cmd = check + " 2>/dev/null || " + rule + " 2>/dev/null";
+        
         if (system(cmd.c_str()) != 0) ++failed;
     }
 
@@ -216,6 +218,32 @@ void Optimizer::revert_interface_qdisc(const std::string& iface) {
     system(("tc qdisc del dev " + iface + " root 2>/dev/null").c_str());
     
     Storage::remove_file("tc_iface");
+}
+
+void Optimizer::apply_bufferbloat_shaping(const std::string& iface) {
+    if (iface.empty()) return;
+
+    std::cerr << "[..] measuring real throughput to size the bufferbloat shaper (this takes a couple seconds)\n";
+
+    MeasuredThroughput measured = BufferbloatShaper::measure_throughput(iface);
+
+    if (!measured.valid || measured.download_bps <= 0.0 || measured.upload_bps <= 0.0) {
+        std::cerr << "[!!] could not measure throughput, skipping bufferbloat shaping (non-critical)\n";
+        
+        return;
+    }
+
+    BufferbloatShaper::apply(iface, measured.download_bps, measured.upload_bps);
+
+    Storage::save("bufferbloat_iface", iface);
+}
+
+void Optimizer::revert_bufferbloat_shaping(const std::string& iface) {
+    if (iface.empty()) return;
+
+    BufferbloatShaper::revert(iface);
+
+    Storage::remove_file("bufferbloat_iface");
 }
 
 void Optimizer::apply_focus_priority(const std::string& iface) {
@@ -429,15 +457,16 @@ void Optimizer::apply(const std::string& forced_iface) {
     std::string iface = forced_iface.empty() ? detect_interface() : forced_iface;
 
     load_bbr_module();
+    load_bbr_module();
 
     std::string avail;
     {
         std::ifstream f("/proc/sys/net/ipv4/tcp_available_congestion_control");
-        
-        if (f) std::getline(f, avail);
+        std::getline(f, avail);
     }
-    
+
     bool bbr_available = avail.find("bbr") != std::string::npos;
+
     if (!bbr_available) {
         std::cerr << "[!!] tcp_bbr module not available, congestion control will remain at default\n";
     }
@@ -508,6 +537,9 @@ void Optimizer::revert() {
         revert_interface_qdisc(Storage::load("tc_iface"));
     }
 
+    if (Storage::exists("bufferbloat_iface")) {
+        revert_bufferbloat_shaping(Storage::load("bufferbloat_iface"));
+    }
     revert_wifi_latency();
     revert_nic_tuning();
     revert_dns();
