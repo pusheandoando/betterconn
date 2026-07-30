@@ -130,7 +130,7 @@ sudo betterconn status
 - Remove all betterconn files from the system (only if already stopped):
 ```bash
 sudo betterconn clean
-
+```
 
 
 
