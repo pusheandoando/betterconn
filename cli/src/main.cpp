@@ -144,6 +144,25 @@ std::string detect_default_interface() {
 }
 
 
+std::string find_fallback_interface() {
+    const std::string net_dir = "/sys/class/net";
+
+    if (!std::filesystem::exists(net_dir)) {
+        return "";
+    }
+
+    for (const auto& entry : std::filesystem::directory_iterator(net_dir)) {
+        std::string name = entry.path().filename().string();
+
+        if (name == "lo") continue;
+
+        return name;
+    }
+
+    return "";
+}
+
+
 void cmd_list() {
     const std::string net_dir = "/sys/class/net";
 
@@ -393,8 +412,24 @@ int main(int argc, char* argv[]) {
 
             if (has_interface_toggle) {
                 if (interface_toggle_on) {
+                    if (iface.empty() && betterconn::Storage::exists("network_toggle_iface")) {
+                        iface = betterconn::Storage::load("network_toggle_iface");
+                    }
+
+                    if (iface.empty()) {
+                        iface = find_fallback_interface();
+                    }
+
                     betterconn::NetworkInfo::force_network_on(iface);
+
+                    if (!iface.empty()) {
+                        betterconn::Storage::save("network_toggle_iface", iface);
+                    }
                 } else {
+                    if (!iface.empty()) {
+                        betterconn::Storage::save("network_toggle_iface", iface);
+                    }
+
                     betterconn::NetworkInfo::force_network_off(iface);
                 }
             } else if (show_secrets) {

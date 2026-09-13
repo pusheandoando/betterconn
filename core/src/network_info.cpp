@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
+#include <filesystem>
 
 
 
@@ -72,6 +73,7 @@ bool NetworkInfo::connection_has_8021x(const std::string& connection_name) {
 
 std::string NetworkInfo::unescape_nmcli(const std::string& value) {
     std::string result;
+
     result.reserve(value.size());
 
     for (size_t i = 0; i < value.size(); ++i) {
@@ -101,6 +103,9 @@ std::string NetworkInfo::first_value(const std::string& raw) {
 
     return first_entry;
 }
+
+
+
 
 
 void NetworkInfo::print_info(const std::string& iface) {
@@ -207,47 +212,57 @@ void NetworkInfo::print_secrets(const std::string& iface) {
 
 
 void NetworkInfo::force_network_on(const std::string& iface) {
-    std::cout << CLR_YELLOW "[..] forcing network interface/NetworkManager on...\n" CLR_RESET;
+    std::cout << CLR_YELLOW "[..] bringing network interface up...\n" CLR_RESET;
 
-    system("rfkill unblock wifi 2>/dev/null");
-    system("rfkill unblock all 2>/dev/null");
-
-    system("systemctl unmask NetworkManager 2>/dev/null");
-    system("systemctl enable NetworkManager 2>/dev/null");
-    system("systemctl start NetworkManager 2>/dev/null");
-    system("systemctl restart NetworkManager 2>/dev/null");
-
-    system("nmcli networking on 2>/dev/null");
-    system("nmcli radio wifi on 2>/dev/null");
-    system("nmcli radio all on 2>/dev/null");
-
-    if (!iface.empty()) {
-        system(("ip link set dev " + iface + " up 2>/dev/null").c_str());
-        system(("nmcli device set " + iface + " managed yes 2>/dev/null").c_str());
-        system(("nmcli device connect " + iface + " 2>/dev/null").c_str());
+    if (iface.empty()) {
+        std::cerr << CLR_LRED "[!!] could not detect an active network interface\n" CLR_RESET;
+        return;
     }
 
-    std::cout << CLR_LGREEN "[OK] attempted to force network on\n" CLR_RESET;
+    bool wifi_iface = std::filesystem::exists("/sys/class/net/" + iface + "/phy80211");
+
+    if (wifi_iface) {
+        system(("rfkill unblock " + iface + " 2>/dev/null").c_str());
+        system("rfkill unblock wifi 2>/dev/null");
+    }
+
+    system(("ip link set dev " + iface + " up 2>/dev/null").c_str());
+    system(("nmcli device set " + iface + " managed yes 2>/dev/null").c_str());
+
+    int connect_result = system(("nmcli device connect " + iface + " 2>/dev/null").c_str());
+
+    std::string online_cmd = "nm-online -q --timeout=15 2>/dev/null";
+    bool came_online = system(online_cmd.c_str()) == 0;
+
+    std::string state = run_and_capture("nmcli -t -g GENERAL.STATE device show " + iface + " 2>/dev/null");
+    bool device_connected = state.find("100") == 0;
+
+    if (connect_result == 0 && (came_online || device_connected)) {
+        std::cout << CLR_LGREEN "[OK] network interface is up and connected\n" CLR_RESET;
+    } else {
+        std::cerr << CLR_LRED "[!!] interface brought up but could not confirm a working connection\n" CLR_RESET;
+    }
 }
 
 
 void NetworkInfo::force_network_off(const std::string& iface) {
-    std::cout << CLR_YELLOW "[..] forcing network interface/NetworkManager off...\n" CLR_RESET;
+    std::cout << CLR_YELLOW "[..] bringing network interface down...\n" CLR_RESET;
 
-    if (!iface.empty()) {
-        system(("nmcli device disconnect " + iface + " 2>/dev/null").c_str());
-        system(("ip link set dev " + iface + " down 2>/dev/null").c_str());
+    if (iface.empty()) {
+        std::cerr << CLR_LRED "[!!] could not detect an active network interface\n" CLR_RESET;
+        return;
     }
 
-    system("nmcli radio wifi off 2>/dev/null");
-    system("nmcli radio all off 2>/dev/null");
-    system("nmcli networking off 2>/dev/null");
+    bool wifi_iface = std::filesystem::exists("/sys/class/net/" + iface + "/phy80211");
 
-    system("systemctl stop NetworkManager 2>/dev/null");
+    system(("nmcli device disconnect " + iface + " 2>/dev/null").c_str());
+    system(("ip link set dev " + iface + " down 2>/dev/null").c_str());
 
-    system("rfkill block wifi 2>/dev/null");
+    if (wifi_iface) {
+        system(("rfkill block " + iface + " 2>/dev/null").c_str());
+    }
 
-    std::cout << CLR_LGREEN "[OK] attempted to force network off\n" CLR_RESET;
+    std::cout << CLR_LGREEN "[OK] network interface is down\n" CLR_RESET;
 }
 
 

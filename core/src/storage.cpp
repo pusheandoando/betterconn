@@ -1,7 +1,6 @@
 // core/src/storage.cpp
 #include "betterconn/storage.hpp"
 
-#include <cstdlib>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
@@ -12,13 +11,7 @@
 
 namespace betterconn {
 std::filesystem::path Storage::dir() {
-    const char* home = std::getenv("HOME");
-    
-    if (!home) {
-        throw std::runtime_error("[!!] HOME environment variable not set");
-    }
-
-    return std::filesystem::path(home) / ".betterconn";
+    return std::filesystem::path("/var/lib") / ".betterconn";
 }
 
 
@@ -29,6 +22,7 @@ void Storage::ensure_dir() {
 
 void Storage::save(const std::string& name, const std::string& content) {
     ensure_dir();
+    
     std::ofstream f(dir() / name);
     
     if (!f) {
