@@ -3,7 +3,6 @@
 #include "betterconn/colors.hpp"
 #include "betterconn/optimizer.hpp"
 #include "betterconn/status.hpp"
-#include "betterconn/optimizer.hpp"
 #include "betterconn/network_info.hpp"
 #include "betterconn/tuner.hpp"
 #include "betterconn/storage.hpp"
@@ -25,14 +24,18 @@
 
 static constexpr const char* kVersion = BETTERCONN_VERSION;
 
+
 namespace {
 volatile sig_atomic_t g_stop = 0;
 
+
 constexpr int kRebootDelaySeconds = 10;
+
 
 void on_signal(int) {
     g_stop = 1;
 }
+
 
 void reboot_with_countdown() {
     for (int remaining = kRebootDelaySeconds; remaining >= 1; --remaining) {
@@ -45,6 +48,7 @@ void reboot_with_countdown() {
     system("systemctl reboot");
 }
 
+
 void print_help() {
     std::cout << "\n" CLR_BOLD CLR_LWHITE "betterconn " << kVersion << CLR_RESET " - Linux Network Optimizer\n";
     std::cout << CLR_WHITE "Written by Christian (@pusheandoando)\n" CLR_RESET;
@@ -52,6 +56,7 @@ void print_help() {
     std::cout << "  " CLR_CYAN "betterconn start" CLR_RESET "                         Apply all network optimizations (persists across reboots)\n";
     std::cout << "  " CLR_CYAN "betterconn start --skip-warning" CLR_RESET "          Skip the security warning prompt\n";
     std::cout << "  " CLR_CYAN "betterconn start --interface <iface>" CLR_RESET "     Apply optimizations on a specific interface\n";
+    std::cout << "  " CLR_CYAN "betterconn start --profile <mode>" CLR_RESET "        Coalescing profile: latency, balanced (default), throughput\n";
     std::cout << "  " CLR_CYAN "betterconn stop" CLR_RESET "                          Revert to original system settings and stop the daemon\n";
     std::cout << "  " CLR_CYAN "betterconn status" CLR_RESET "                        Show live connection stats and state\n";
     std::cout << "  " CLR_CYAN "betterconn list" CLR_RESET "                          List all available network interfaces\n";
@@ -59,7 +64,10 @@ void print_help() {
     std::cout << "  " CLR_CYAN "betterconn -v, --version" CLR_RESET "                 Show installed version\n";
     std::cout << "  " CLR_CYAN "betterconn -h, --help" CLR_RESET "                    Show this message\n";
     std::cout << "  " CLR_CYAN "betterconn network" CLR_RESET "                       Show info for the currently active network\n";
+    std::cout << "\n";
+    std::cout << CLR_WHITE "Official repo: " CLR_RESET CLR_CYAN "https://github.com/pusheandoando/betterconn" CLR_RESET "\n";
 }
+
 
 void require_root() {
     if (geteuid() != 0) {
@@ -67,6 +75,7 @@ void require_root() {
         std::exit(1);
     }
 }
+
 
 bool confirm_security_warning() {
     std::cout << "\n";
@@ -92,10 +101,13 @@ bool confirm_security_warning() {
     std::string input;
     std::getline(std::cin, input);
     
+
     for (char& c : input) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     
+
     return input == "y" || input == "yes";
 }
+
 
 void print_stop_reboot_warning() {
     std::cout << "\n";
@@ -105,6 +117,7 @@ void print_stop_reboot_warning() {
     std::cout << "\n";
     std::cout << CLR_WHITE "  Continue? [y/n]: " CLR_RESET << std::flush;
 }
+
 
 std::string detect_default_interface() {
     std::string default_iface;
@@ -117,11 +130,11 @@ std::string detect_default_interface() {
         while (std::getline(route, line)) {
             std::istringstream ss(line);
             std::string iface, dest;
+            
             ss >> iface >> dest;
 
             if (dest == "00000000") {
                 default_iface = iface;
-                
                 break;
             }
         }
@@ -129,6 +142,7 @@ std::string detect_default_interface() {
 
     return default_iface;
 }
+
 
 void cmd_list() {
     const std::string net_dir = "/sys/class/net";
@@ -141,6 +155,7 @@ void cmd_list() {
     std::string default_iface = detect_default_interface();
 
     std::cout << "\n" CLR_BOLD CLR_LWHITE "Available network interfaces:\n" CLR_RESET;
+
 
     for (const auto& entry : std::filesystem::directory_iterator(net_dir)) {
         std::string name = entry.path().filename().string();
@@ -163,6 +178,7 @@ void cmd_list() {
     std::cout << "\n";
 }
 }
+
 
 int main(int argc, char* argv[]) {
     if (argc == 1
@@ -187,7 +203,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+
     std::string cmd = argv[1];
+
 
     try {
         if (cmd == "start") {
@@ -197,12 +215,13 @@ int main(int argc, char* argv[]) {
 
             if (opt.is_active()) {
                 std::cerr << CLR_LRED "[!!] betterconn is already active, run stop first\n" CLR_RESET;
-                
                 return 1;
             }
 
             bool skip_warning = false;
             std::string iface;
+            betterconn::LatencyProfile profile = betterconn::LatencyProfile::Balanced;
+
 
             for (int i = 2; i < argc; ++i) {
                 std::string arg = argv[i];
@@ -212,25 +231,41 @@ int main(int argc, char* argv[]) {
                 } else if (arg == "--interface") {
                     if (i + 1 >= argc) {
                         std::cerr << CLR_LRED "[!!] --interface requires an interface name\n" CLR_RESET;
-                        
                         return 1;
                     }
+
                     iface = argv[++i];
+                } else if (arg == "--profile") {
+                    if (i + 1 >= argc) {
+                        std::cerr << CLR_LRED "[!!] --profile requires latency, balanced, or throughput\n" CLR_RESET;
+                        return 1;
+                    }
+
+                    std::string profile_value = argv[++i];
+
+                    if (profile_value == "latency") {
+                        profile = betterconn::LatencyProfile::Latency;
+                    } else if (profile_value == "balanced") {
+                        profile = betterconn::LatencyProfile::Balanced;
+                    } else if (profile_value == "throughput") {
+                        profile = betterconn::LatencyProfile::Throughput;
+                    } else {
+                        std::cerr << CLR_LRED "[!!] --profile requires latency, balanced, or throughput\n" CLR_RESET;
+                        return 1;
+                    }
                 } else {
                     std::cerr << CLR_LRED "[!!] unknown option: " << arg << "\n" CLR_RESET;
                     std::cerr << CLR_WHITE "run: betterconn -h\n" CLR_RESET;
-                    
                     return 1;
                 }
             }
 
             if (!skip_warning && !confirm_security_warning()) {
                 std::cout << CLR_YELLOW "[!!] aborted\n" CLR_RESET;
-                
                 return 0;
             }
 
-            opt.apply(iface);
+            opt.apply(iface, profile);
             std::cout << CLR_LGREEN "[OK] optimizations applied\n" CLR_RESET;
             betterconn::Status().print();
 
@@ -242,7 +277,6 @@ int main(int argc, char* argv[]) {
 
             if (!opt.is_active()) {
                 std::cerr << CLR_LRED "[!!] betterconn is not active\n" CLR_RESET;
-                
                 return 1;
             }
 
@@ -250,11 +284,11 @@ int main(int argc, char* argv[]) {
 
             std::string input;
             std::getline(std::cin, input);
+
             for (char& c : input) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 
             if (input != "y" && input != "yes") {
                 std::cout << CLR_YELLOW "[!!] aborted\n" CLR_RESET;
-                
                 return 0;
             }
 
@@ -276,7 +310,6 @@ int main(int argc, char* argv[]) {
             
             if (betterconn::Storage::exists("state") && betterconn::Storage::load("state") == "active") {
                 std::cerr << CLR_LRED "[!!] betterconn is active, run stop first\n" CLR_RESET;
-                
                 return 1;
             }
 
@@ -287,7 +320,6 @@ int main(int argc, char* argv[]) {
             if (!betterconn::Storage::exists("state") ||
                 betterconn::Storage::load("state") != "active") {
                 std::cerr << CLR_LRED "[!!] betterconn is not active, run start first\n" CLR_RESET;
-                
                 return 1;
             }
 
@@ -352,7 +384,6 @@ int main(int argc, char* argv[]) {
 
             if (show_help) {
                 betterconn::NetworkInfo::print_help();
-                
                 return 0;
             }
 
@@ -374,12 +405,10 @@ int main(int argc, char* argv[]) {
         } else {
             std::cerr << CLR_LRED "[!!] unknown option: " << cmd << "\n" CLR_RESET;
             std::cerr << CLR_WHITE "run: betterconn -h\n" CLR_RESET;
-            
             return 1;
         }
     } catch (const std::exception& e) {
         std::cerr << CLR_LRED "[!!] " << e.what() << "\n" CLR_RESET;
-        
         return 1;
     }
 

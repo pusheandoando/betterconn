@@ -15,6 +15,7 @@ enum class WindowFocusBackend {
     WaylandHyprland,
 };
 
+
 class WindowFocusDetector {
 public:
     static WindowFocusBackend detect_available_backend();

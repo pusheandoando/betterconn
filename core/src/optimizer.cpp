@@ -3,6 +3,7 @@
 #include "betterconn/storage.hpp"
 #include "betterconn/priority_scheduler.hpp"
 #include "betterconn/bufferbloat_shaper.hpp"
+#include "betterconn/irq_affinity.hpp"
 
 #include <cstdlib>
 #include <fstream>
@@ -53,6 +54,30 @@ static std::vector<SysctlParam> base_params() {
     };
 }
 
+
+std::string Optimizer::profile_to_string(LatencyProfile profile) {
+    switch (profile) {
+        case LatencyProfile::Latency: return "latency";
+        case LatencyProfile::Throughput: return "throughput";
+        case LatencyProfile::Balanced:
+        default: return "balanced";
+    }
+}
+
+
+std::string Optimizer::ethtool_coalesce_args(LatencyProfile profile) {
+    switch (profile) {
+        case LatencyProfile::Latency:
+            return "adaptive-rx off adaptive-tx off rx-usecs 0 rx-frames 1 tx-usecs 0 tx-frames 1";
+        case LatencyProfile::Throughput:
+            return "adaptive-rx off adaptive-tx off rx-usecs 250 rx-frames 64 tx-usecs 250 tx-frames 64";
+        case LatencyProfile::Balanced:
+        default:
+            return "adaptive-rx on adaptive-tx on";
+    }
+}
+
+
 std::string Optimizer::detect_interface() {
     std::ifstream f("/proc/net/route");
     
@@ -64,6 +89,7 @@ std::string Optimizer::detect_interface() {
     while (std::getline(f, line)) {
         std::istringstream ss(line);
         std::string iface, dest;
+        
         ss >> iface >> dest;
         
         if (dest == "00000000") return iface;
@@ -72,9 +98,11 @@ std::string Optimizer::detect_interface() {
     return "";
 }
 
+
 bool Optimizer::is_wifi(const std::string& iface) {
     return std::filesystem::exists("/sys/class/net/" + iface + "/phy80211");
 }
+
 
 std::string Optimizer::sysctl_path(const std::string& key) {
     std::string path = "/proc/sys/";
@@ -83,6 +111,7 @@ std::string Optimizer::sysctl_path(const std::string& key) {
     
     return path;
 }
+
 
 std::string Optimizer::read_sysctl(const std::string& key) {
     std::ifstream f(sysctl_path(key));
@@ -95,6 +124,7 @@ std::string Optimizer::read_sysctl(const std::string& key) {
     return val;
 }
 
+
 bool Optimizer::write_sysctl(const std::string& key, const std::string& value) {
     std::ofstream f(sysctl_path(key));
     
@@ -105,9 +135,11 @@ bool Optimizer::write_sysctl(const std::string& key, const std::string& value) {
     return true;
 }
 
+
 void Optimizer::load_bbr_module() {
     system("modprobe tcp_bbr 2>/dev/null");
 }
+
 
 std::vector<std::string> Optimizer::iptables_add_rules() {
     return {
@@ -120,10 +152,11 @@ std::vector<std::string> Optimizer::iptables_add_rules() {
     };
 }
 
+
 void Optimizer::apply_iptables() {
     system("modprobe xt_TOS 2>/dev/null");
-    int failed = 0;
     
+    int failed = 0;
     for (const auto& rule : iptables_add_rules()) {
         std::string check = rule;
         
@@ -140,6 +173,7 @@ void Optimizer::apply_iptables() {
     }
 }
 
+
 void Optimizer::revert_iptables() {
     for (auto rule : iptables_add_rules()) {
         auto pos = rule.find(" -A ");
@@ -150,14 +184,18 @@ void Optimizer::revert_iptables() {
     }
 }
 
-void Optimizer::apply_nic_tuning(const std::string& iface) {
+
+void Optimizer::apply_nic_tuning(const std::string& iface, LatencyProfile profile) {
     if (iface.empty()) return;
     
     if (system("command -v ethtool >/dev/null 2>&1") != 0) {
         std::cerr << "[!!] ethtool not found, skipping NIC tuning\n";
         return;
     }
-    
+
+    // WiFi drivers manage coalescing in firmware, so only Ethernet gets the latency/throughput coalescing profiles; WiFi always keeps adaptive mode.
+    LatencyProfile effective_profile = is_wifi(iface) ? LatencyProfile::Balanced : profile;
+
     std::string cmd = "ethtool -c " + iface + " 2>/dev/null";
     FILE* p = popen(cmd.c_str(), "r");
     if (!p) return;
@@ -174,14 +212,13 @@ void Optimizer::apply_nic_tuning(const std::string& iface) {
     Storage::save("nic_adaptive_rx", arx_on ? "on" : "off");
     Storage::save("nic_adaptive_tx", atx_on ? "on" : "off");
 
-    if (!arx_on || !atx_on) {
-        std::string set_cmd = "ethtool -C " + iface + " adaptive-rx on adaptive-tx on 2>/dev/null";
-        
-        if (system(set_cmd.c_str()) != 0) {
-            std::cerr << "[!!] could not set adaptive interrupt coalescing on " << iface << " (non-critical)\n";
-        }
+    std::string set_cmd = "ethtool -C " + iface + " " + ethtool_coalesce_args(effective_profile) + " 2>/dev/null";
+
+    if (system(set_cmd.c_str()) != 0) {
+        std::cerr << "[!!] could not set interrupt coalescing on " << iface << " (non-critical)\n";
     }
 }
+
 
 void Optimizer::revert_nic_tuning() {
     if (!Storage::exists("nic_iface")) return;
@@ -200,6 +237,7 @@ void Optimizer::revert_nic_tuning() {
     Storage::remove_file("nic_adaptive_tx");
 }
 
+
 void Optimizer::apply_interface_qdisc(const std::string& iface) {
     if (iface.empty()) return;
     
@@ -212,6 +250,7 @@ void Optimizer::apply_interface_qdisc(const std::string& iface) {
     Storage::save("tc_iface", iface);
 }
 
+
 void Optimizer::revert_interface_qdisc(const std::string& iface) {
     if (iface.empty()) return;
     
@@ -219,6 +258,7 @@ void Optimizer::revert_interface_qdisc(const std::string& iface) {
     
     Storage::remove_file("tc_iface");
 }
+
 
 void Optimizer::apply_bufferbloat_shaping(const std::string& iface) {
     if (iface.empty()) return;
@@ -229,7 +269,6 @@ void Optimizer::apply_bufferbloat_shaping(const std::string& iface) {
 
     if (!measured.valid || measured.download_bps <= 0.0 || measured.upload_bps <= 0.0) {
         std::cerr << "[!!] could not measure throughput, skipping bufferbloat shaping (non-critical)\n";
-        
         return;
     }
 
@@ -237,6 +276,7 @@ void Optimizer::apply_bufferbloat_shaping(const std::string& iface) {
 
     Storage::save("bufferbloat_iface", iface);
 }
+
 
 void Optimizer::revert_bufferbloat_shaping(const std::string& iface) {
     if (iface.empty()) return;
@@ -246,6 +286,7 @@ void Optimizer::revert_bufferbloat_shaping(const std::string& iface) {
     Storage::remove_file("bufferbloat_iface");
 }
 
+
 void Optimizer::apply_focus_priority(const std::string& iface) {
     if (iface.empty()) return;
 
@@ -254,6 +295,7 @@ void Optimizer::apply_focus_priority(const std::string& iface) {
     Storage::save("focus_priority_iface", iface);
 }
 
+
 void Optimizer::revert_focus_priority(const std::string& iface) {
     if (iface.empty()) return;
 
@@ -261,6 +303,7 @@ void Optimizer::revert_focus_priority(const std::string& iface) {
     PriorityScheduler::revert_cgroup_and_marking();
     Storage::remove_file("focus_priority_iface");
 }
+
 
 void Optimizer::apply_wifi_latency(const std::string& iface) {
     if (iface.empty() || !is_wifi(iface)) return;
@@ -297,6 +340,7 @@ void Optimizer::apply_wifi_latency(const std::string& iface) {
     system(("nmcli device reapply " + iface + " 2>/dev/null").c_str());
 }
 
+
 void Optimizer::revert_wifi_latency() {
     if (!Storage::exists("wifi_pm_iface")) return;
     
@@ -313,6 +357,7 @@ void Optimizer::revert_wifi_latency() {
     system("nmcli general reload 2>/dev/null");
     system(("nmcli device reapply " + iface + " 2>/dev/null").c_str());
 }
+
 
 void Optimizer::apply_dns() {
     if (system("systemctl is-active --quiet systemd-resolved 2>/dev/null") != 0) return;
@@ -333,6 +378,7 @@ void Optimizer::apply_dns() {
     system("systemctl restart systemd-resolved 2>/dev/null");
 }
 
+
 void Optimizer::revert_dns() {
     std::error_code ec;
     
@@ -341,7 +387,8 @@ void Optimizer::revert_dns() {
     }
 }
 
-void Optimizer::write_persistence(const std::string& iface) {
+
+void Optimizer::write_persistence(const std::string& iface, LatencyProfile profile) {
     std::error_code ec;
     std::filesystem::create_directories("/etc/betterconn", ec);
 
@@ -385,19 +432,19 @@ void Optimizer::write_persistence(const std::string& iface) {
             }
             
             if (!iface.empty()) {
-                f << "ethtool -C " << iface << " adaptive-rx on adaptive-tx on 2>/dev/null || true\n";
-                f << "tc qdisc replace dev " << iface << " root fq_codel target 5ms interval 100ms 2>/dev/null || true\n";
-                f << "iptables -t mangle -A OUTPUT -m cgroup --path betterconn_focus -j MARK --set-mark 0x1f 2>/dev/null || true\n";
-                f << "tc qdisc del dev " << iface << " root 2>/dev/null || true\n";
-                f << "tc qdisc replace dev " << iface << " root handle 1: htb default 20 2>/dev/null || true\n";
-                f << "tc class add dev " << iface << " parent 1: classid 1:1 htb rate 1000mbit ceil 1000mbit 2>/dev/null || true\n";
-                f << "tc class add dev " << iface << " parent 1:1 classid 1:10 htb rate 300mbit ceil 1000mbit prio 1 2>/dev/null || true\n";
-                f << "tc class add dev " << iface << " parent 1:1 classid 1:20 htb rate 700mbit ceil 1000mbit prio 2 2>/dev/null || true\n";
-                f << "tc qdisc add dev " << iface << " parent 1:10 handle 10: fq_codel target 5ms interval 100ms 2>/dev/null || true\n";
-                f << "tc qdisc add dev " << iface << " parent 1:20 handle 20: fq_codel target 5ms interval 100ms 2>/dev/null || true\n";
-                f << "tc filter add dev " << iface << " parent 1: protocol ip prio 1 handle 0x1f fw flowid 1:10 2>/dev/null || true\n";
+                bool wifi_iface = is_wifi(iface);
+                LatencyProfile effective_profile = wifi_iface ? LatencyProfile::Balanced : profile;
 
-                if (is_wifi(iface)) {
+                f << "ethtool -C " << iface << " " << ethtool_coalesce_args(effective_profile) << " 2>/dev/null || true\n";
+                f << "tc qdisc replace dev " << iface << " root fq_codel target 5ms interval 100ms 2>/dev/null || true\n";
+                f << "iptables -t mangle -A OUTPUT -m cgroup --path betterconn_priority/hot -j MARK --set-mark 0x4 2>/dev/null || true\n";
+                f << "iptables -t mangle -A OUTPUT -m cgroup --path betterconn_priority/warm -j MARK --set-mark 0x3 2>/dev/null || true\n";
+                f << "iptables -t mangle -A OUTPUT -m cgroup --path betterconn_priority/cool -j MARK --set-mark 0x2 2>/dev/null || true\n";
+                f << "iptables -t mangle -A OUTPUT -m cgroup --path betterconn_priority/cold -j MARK --set-mark 0x1 2>/dev/null || true\n";
+                f << "tc qdisc del dev " << iface << " root 2>/dev/null || true\n";
+                f << "tc qdisc replace dev " << iface << " root handle 1: cake diffserv4 triple-isolate fwmark 0xff 2>/dev/null || true\n";
+
+                if (wifi_iface) {
                     f << "iw dev " << iface << " set power_save off 2>/dev/null || true\n";
                 }
             }
@@ -435,6 +482,7 @@ void Optimizer::write_persistence(const std::string& iface) {
     }
 }
 
+
 void Optimizer::remove_persistence() {
     system("systemctl stop betterconn.service 2>/dev/null");
     system("systemctl disable betterconn.service 2>/dev/null");
@@ -449,14 +497,14 @@ void Optimizer::remove_persistence() {
     system("systemctl daemon-reload 2>/dev/null");
 }
 
-void Optimizer::apply(const std::string& forced_iface) {
+
+void Optimizer::apply(const std::string& forced_iface, LatencyProfile profile) {
     if (is_active()) {
         throw std::runtime_error("betterconn is already active, run stop first");
     }
 
     std::string iface = forced_iface.empty() ? detect_interface() : forced_iface;
 
-    load_bbr_module();
     load_bbr_module();
 
     std::string avail;
@@ -492,13 +540,15 @@ void Optimizer::apply(const std::string& forced_iface) {
     apply_interface_qdisc(iface);
     apply_focus_priority(iface);
     apply_wifi_latency(iface);
-    apply_nic_tuning(iface);
-    write_persistence(iface);
+    apply_nic_tuning(iface, profile);
+    IrqAffinity::apply(iface);
+    write_persistence(iface, profile);
     apply_iptables();
     apply_dns();
     Storage::save("iface", iface);
     Storage::save("state", "active");
 }
+
 
 void Optimizer::revert() {
     if (!is_active()) {
@@ -540,6 +590,8 @@ void Optimizer::revert() {
     if (Storage::exists("bufferbloat_iface")) {
         revert_bufferbloat_shaping(Storage::load("bufferbloat_iface"));
     }
+
+    IrqAffinity::revert();
     revert_wifi_latency();
     revert_nic_tuning();
     revert_dns();
@@ -549,7 +601,10 @@ void Optimizer::revert() {
     Storage::remove_file("iface");
 }
 
+
 bool Optimizer::is_active() const {
+    if (Storage::exists("sysctl_backup")) return true;
+
     if (!Storage::exists("state")) return false;
     
     return Storage::load("state") == "active";

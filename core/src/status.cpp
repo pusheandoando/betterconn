@@ -35,6 +35,7 @@ std::string Status::detect_interface() {
     return "unknown";
 }
 
+
 std::pair<double, double> Status::measure_speed(const std::string& iface) {
     auto read_bytes = [&]() -> std::pair<uint64_t, uint64_t> {
         std::ifstream f("/proc/net/dev");
@@ -73,6 +74,7 @@ std::pair<double, double> Status::measure_speed(const std::string& iface) {
     return {static_cast<double>(rx1 - rx0), static_cast<double>(tx1 - tx0)};
 }
 
+
 double Status::measure_ping(const std::string& host) {
     std::string cmd = "ping -c 3 -i 0.2 -W 2 " + host + " 2>/dev/null";
 
@@ -104,6 +106,7 @@ double Status::measure_ping(const std::string& host) {
     }
 }
 
+
 std::string Status::read_sysctl(const std::string& key) {
     std::string path = "/proc/sys/";
 
@@ -118,6 +121,7 @@ std::string Status::read_sysctl(const std::string& key) {
     
     return val;
 }
+
 
 void Status::print() const {
     bool active = Storage::exists("state") && Storage::load("state") == "active";

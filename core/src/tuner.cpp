@@ -35,6 +35,7 @@ static constexpr double kBusyRatioLow = 0.15;
 static constexpr uint64_t kBufMin = 4194304;
 static constexpr uint64_t kBufMax = 33554432;
 
+
 void Tuner::write_sysctl(const std::string& key, const std::string& value) {
     std::string path = "/proc/sys/";
     
@@ -44,10 +45,12 @@ void Tuner::write_sysctl(const std::string& key, const std::string& value) {
     if (f) f << value << "\n";
 }
 
+
 void Tuner::set_qdisc_target(const std::string& iface, int target_ms) {
     (void)iface;
     (void)target_ms;
 }
+
 
 uint64_t Tuner::compute_bdp_buf(double rx_bps, double rtt_ms) {
     if (rx_bps <= 0.0 || rtt_ms <= 0.0) return 8388608;
@@ -66,6 +69,7 @@ uint64_t Tuner::compute_bdp_buf(double rx_bps, double rtt_ms) {
     
     return buf;
 }
+
 
 double Tuner::read_rtt_ms() {
     FILE* p = popen("ping -c 2 -i 0.1 -W 1 8.8.8.8 2>/dev/null", "r");
@@ -91,6 +95,7 @@ double Tuner::read_rtt_ms() {
     try { return std::stod(out.substr(sl1 + 1, sl2 - sl1 - 1)); } catch (...) { return -1.0; }
 }
 
+
 static uint64_t read_iface_rx(const std::string& iface) {
     std::ifstream f("/proc/net/dev");
     std::string line;
@@ -114,6 +119,7 @@ static uint64_t read_iface_rx(const std::string& iface) {
 
     return 0ULL;
 }
+
 
 static uint64_t read_iface_tx(const std::string& iface) {
     std::ifstream f("/proc/net/dev");
@@ -143,6 +149,7 @@ static uint64_t read_iface_tx(const std::string& iface) {
     return 0ULL;
 }
 
+
 double Tuner::read_rx_bps(const std::string& iface, int ms) {
     uint64_t before = read_iface_rx(iface);
     std::this_thread::sleep_for(std::chrono::milliseconds(ms));
@@ -151,6 +158,7 @@ double Tuner::read_rx_bps(const std::string& iface, int ms) {
     return static_cast<double>(after - before) * 8.0 / (ms / 1000.0);
 }
 
+
 double Tuner::read_tx_bps(const std::string& iface, int ms) {
     uint64_t before = read_iface_tx(iface);
     std::this_thread::sleep_for(std::chrono::milliseconds(ms));
@@ -158,6 +166,7 @@ double Tuner::read_tx_bps(const std::string& iface, int ms) {
 
     return static_cast<double>(after - before) * 8.0 / (ms / 1000.0);
 }
+
 
 double Tuner::read_rssi_dbm(const std::string& iface) {
     std::ifstream f("/proc/net/wireless");
@@ -188,6 +197,7 @@ double Tuner::read_rssi_dbm(const std::string& iface) {
     return 0.0;
 }
 
+
 double Tuner::read_tx_retries(const std::string& iface) {
     std::ifstream f("/proc/net/wireless");
     if (!f) return 0.0;
@@ -217,9 +227,11 @@ double Tuner::read_tx_retries(const std::string& iface) {
     return 0.0;
 }
 
+
 bool Tuner::is_wifi(const std::string& iface) {
     return std::filesystem::exists("/sys/class/net/" + iface + "/phy80211");
 }
+
 
 void Tuner::sampler_loop(const std::string& iface, std::atomic<bool>& running, SharedSample& s) {
     const bool wifi = is_wifi(iface);
@@ -251,6 +263,7 @@ void Tuner::sampler_loop(const std::string& iface, std::atomic<bool>& running, S
         s.seq.fetch_add(1, std::memory_order_release);
     }
 }
+
 
 void Tuner::buffer_loop(std::atomic<bool>& running, SharedSample& s) {
     uint64_t last_seq = 0;
@@ -288,6 +301,7 @@ void Tuner::buffer_loop(std::atomic<bool>& running, SharedSample& s) {
         write_sysctl("net.ipv4.tcp_wmem", tcp_vec);
     }
 }
+
 
 void Tuner::qdisc_loop(const std::string& iface, std::atomic<bool>& running, SharedSample& s, SurveyMonitor& survey, PriorityScheduler& scheduler) {
     (void)iface;
@@ -331,6 +345,7 @@ void Tuner::qdisc_loop(const std::string& iface, std::atomic<bool>& running, Sha
     }
 }
 
+
 void Tuner::wifi_loop(const std::string& iface, std::atomic<bool>& running, SharedSample& s) {
     if (!is_wifi(iface)) return;
 
@@ -370,6 +385,7 @@ void Tuner::wifi_loop(const std::string& iface, std::atomic<bool>& running, Shar
     }
 }
 
+
 void Tuner::rtt_loop(std::atomic<bool>& running, SharedSample& s) {
     while (running.load(std::memory_order_relaxed)) {
         double rtt = read_rtt_ms();
@@ -381,6 +397,7 @@ void Tuner::rtt_loop(std::atomic<bool>& running, SharedSample& s) {
         std::this_thread::sleep_for(std::chrono::milliseconds(kRttIntervalMs));
     }
 }
+
 
 void Tuner::start(const std::string& iface) {
     running_.store(true, std::memory_order_relaxed);
@@ -408,6 +425,7 @@ void Tuner::start(const std::string& iface) {
     survey_monitor_.start(iface);
     priority_scheduler_.start(iface);
 }
+
 
 void Tuner::stop() {
     running_.store(false, std::memory_order_relaxed);

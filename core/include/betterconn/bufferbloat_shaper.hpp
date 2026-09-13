@@ -15,9 +15,10 @@ struct MeasuredThroughput {
     bool valid;
 };
 
+
 class BufferbloatShaper {
 public:
-    static MeasuredThroughput measure_throughput(const std::string& iface, int sample_ms = 2000);
+    static MeasuredThroughput measure_throughput(const std::string& iface, int sample_ms=2000);
 
     static void apply(const std::string& iface, double download_bps, double upload_bps);
     static void revert(const std::string& iface);

@@ -18,6 +18,7 @@ struct SurveySample {
     bool valid;
 };
 
+
 class SurveyMonitor {
 public:
     void start(const std::string& iface);
@@ -35,9 +36,7 @@ private:
     std::atomic<double> noise_dbm_{0.0};
     std::atomic<bool> has_data_{false};
 
-    static void monitor_loop(const std::string& iface, std::atomic<bool>& running,
-                              std::atomic<double>& busy_ratio, std::atomic<double>& noise_dbm,
-                              std::atomic<bool>& has_data);
+    static void monitor_loop(const std::string& iface, std::atomic<bool>& running, std::atomic<double>& busy_ratio, std::atomic<double>& noise_dbm, std::atomic<bool>& has_data);
     static bool is_wifi(const std::string& iface);
     static SurveySample read_active_channel_survey(const std::string& iface);
 };

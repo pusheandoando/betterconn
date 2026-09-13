@@ -2,29 +2,26 @@
 #include "betterconn/priority_scheduler.hpp"
 #include "betterconn/proc_activity.hpp"
 
-#include <cmath>
 #include <array>
-#include <vector>
 #include <cstdio>
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
-#include <sstream>
 #include <iostream>
 #include <algorithm>
 #include <filesystem>
 #include <unordered_map>
+#include <unordered_set>
 
 
 
 
-
-static constexpr int kStaleEntryPruneEveryTicks = 40;
 
 namespace betterconn {
 bool PriorityScheduler::cgroup_v2_mounted() {
     return std::filesystem::exists("/sys/fs/cgroup/cgroup.controllers");
 }
+
 
 PriorityTier PriorityScheduler::tier_for_decay(double decay_factor) {
     if (decay_factor >= 0.7) return PriorityTier::Warm;
@@ -32,6 +29,7 @@ PriorityTier PriorityScheduler::tier_for_decay(double decay_factor) {
 
     return PriorityTier::Cold;
 }
+
 
 bool PriorityScheduler::tier_boundary_crossed_with_margin(double decay_factor, PriorityTier current_tier, PriorityTier proposed_tier) {
     if (current_tier == proposed_tier) return false;
@@ -49,23 +47,6 @@ bool PriorityScheduler::tier_boundary_crossed_with_margin(double decay_factor, P
     return decay_factor < threshold - kHysteresisMargin;
 }
 
-bool PriorityScheduler::tier_mass_shifted_significantly(const std::vector<double>& previous, const std::vector<double>& current) {
-    if (previous.size() != current.size()) return true;
-
-    static constexpr double kRelativeChangeThreshold = 0.15;
-    static constexpr double kAbsoluteChangeFloor = 5.0;
-
-    for (size_t i = 0; i < previous.size(); ++i) {
-        if (previous[i] < 0.0) return true;
-
-        double delta = std::abs(current[i] - previous[i]);
-        double reference = std::max(previous[i], kAbsoluteChangeFloor);
-
-        if (delta / reference >= kRelativeChangeThreshold) return true;
-    }
-
-    return false;
-}
 
 const char* PriorityScheduler::tier_cgroup_name(PriorityTier tier) {
     switch (tier) {
@@ -77,6 +58,7 @@ const char* PriorityScheduler::tier_cgroup_name(PriorityTier tier) {
     }
 }
 
+
 int PriorityScheduler::tier_fw_mark(PriorityTier tier) {
     switch (tier) {
         case PriorityTier::Hot: return kHotFwMark;
@@ -86,6 +68,7 @@ int PriorityScheduler::tier_fw_mark(PriorityTier tier) {
         default: return kColdFwMark;
     }
 }
+
 
 void PriorityScheduler::apply_cgroup_and_marking() {
     if (!cgroup_v2_mounted()) {
@@ -105,7 +88,6 @@ void PriorityScheduler::apply_cgroup_and_marking() {
 
         if (ec) {
             std::cerr << "[!!] could not create priority cgroup " << tier_path << " (non-critical)\n";
-            
             continue;
         }
 
@@ -122,6 +104,7 @@ void PriorityScheduler::apply_cgroup_and_marking() {
         }
     }
 }
+
 
 void PriorityScheduler::revert_cgroup_and_marking() {
     const std::array<PriorityTier, 4> tiers = {
@@ -140,6 +123,7 @@ void PriorityScheduler::revert_cgroup_and_marking() {
     std::filesystem::remove_all(kCgroupBasePath, ec);
 }
 
+
 void PriorityScheduler::move_pid_to_tier(int pid, PriorityTier tier) {
     if (pid <= 0) return;
 
@@ -152,43 +136,20 @@ void PriorityScheduler::move_pid_to_tier(int pid, PriorityTier tier) {
     f << pid;
 }
 
+
 void PriorityScheduler::apply_qdisc_hierarchy(const std::string& iface) {
     if (iface.empty()) return;
 
     system(("tc qdisc del dev " + iface + " root 2>/dev/null").c_str());
 
-    bool ok = true;
-    ok &= system(("tc qdisc replace dev " + iface + " root handle 1: htb default 40 2>/dev/null").c_str()) == 0;
-    ok &= system(("tc class add dev " + iface + " parent 1: classid 1:1 htb rate 1000mbit ceil 1000mbit 2>/dev/null").c_str()) == 0;
-    ok &= system(("tc class add dev " + iface + " parent 1:1 classid " + std::string(kHotClassId) + " htb rate 550mbit ceil 1000mbit prio 1 2>/dev/null").c_str()) == 0;
-    ok &= system(("tc class add dev " + iface + " parent 1:1 classid " + std::string(kWarmClassId) + " htb rate 300mbit ceil 1000mbit prio 2 2>/dev/null").c_str()) == 0;
-    ok &= system(("tc class add dev " + iface + " parent 1:1 classid " + std::string(kCoolClassId) + " htb rate 100mbit ceil 800mbit prio 3 2>/dev/null").c_str()) == 0;
-    ok &= system(("tc class add dev " + iface + " parent 1:1 classid " + std::string(kColdClassId) + " htb rate 50mbit ceil 600mbit prio 4 2>/dev/null").c_str()) == 0;
+    // fwmark 0xff has no trailing unset bits, so CAKE uses the mark value directly as the tin index (1=Cold .. 4=Hot under diffserv4)
+    std::string cmd = "tc qdisc replace dev " + iface + " root handle 1: cake diffserv4 triple-isolate fwmark 0xff 2>/dev/null";
 
-    ok &= system(("tc qdisc add dev " + iface + " parent " + std::string(kHotClassId) + " handle 10: fq_codel target 5ms interval 100ms 2>/dev/null").c_str()) == 0;
-    ok &= system(("tc qdisc add dev " + iface + " parent " + std::string(kWarmClassId) + " handle 20: fq_codel target 5ms interval 100ms 2>/dev/null").c_str()) == 0;
-    ok &= system(("tc qdisc add dev " + iface + " parent " + std::string(kCoolClassId) + " handle 30: fq_codel target 5ms interval 100ms 2>/dev/null").c_str()) == 0;
-    ok &= system(("tc qdisc add dev " + iface + " parent " + std::string(kColdClassId) + " handle 40: fq_codel target 5ms interval 100ms 2>/dev/null").c_str()) == 0;
-
-    const std::array<PriorityTier, 4> tiers = {
-        PriorityTier::Hot, PriorityTier::Warm, PriorityTier::Cool, PriorityTier::Cold
-    };
-
-    const std::array<const char*, 4> classids = {
-        kHotClassId, kWarmClassId, kCoolClassId, kColdClassId
-    };
-
-    for (size_t i = 0; i < tiers.size(); ++i) {
-        char mark_buf[16];
-        std::snprintf(mark_buf, sizeof(mark_buf), "0x%x", tier_fw_mark(tiers[i]));
-
-        ok &= system(("tc filter add dev " + iface + " parent 1: protocol ip prio 1 handle " + mark_buf + " fw flowid " + std::string(classids[i]) + " 2>/dev/null").c_str()) == 0;
-    }
-
-    if (!ok) {
-        std::cerr << "[!!] could not fully apply priority qdisc hierarchy on " << iface << " (non-critical)\n";
+    if (system(cmd.c_str()) != 0) {
+        std::cerr << "[!!] could not apply cake priority qdisc on " << iface << " (non-critical)\n";
     }
 }
+
 
 void PriorityScheduler::revert_qdisc_hierarchy(const std::string& iface) {
     if (iface.empty()) return;
@@ -197,57 +158,54 @@ void PriorityScheduler::revert_qdisc_hierarchy(const std::string& iface) {
     system(("tc qdisc replace dev " + iface + " root fq_codel target 5ms interval 100ms 2>/dev/null").c_str());
 }
 
-void PriorityScheduler::rebalance_tier_bandwidth(const std::string& iface, const std::vector<double>& tier_mass) {
-    double total_mass = tier_mass[0] + tier_mass[1] + tier_mass[2] + tier_mass[3];
-    if (total_mass <= 0.0) return;
 
-    const std::array<const char*, 4> classids = {
-        kHotClassId, kWarmClassId, kCoolClassId, kColdClassId
-    };
-
-    const std::array<double, 4> min_share = {0.25, 0.10, 0.05, 0.02};
-
-    for (size_t i = 0; i < classids.size(); ++i) {
-        double proportional_share = tier_mass[i] / total_mass;
-        double effective_share = std::max(proportional_share, min_share[i]);
-
-        int rate_mbit = static_cast<int>(effective_share * 1000.0);
-        rate_mbit = std::max(rate_mbit, 10);
-
-        std::string cmd = "tc class change dev " + iface + " parent 1:1 classid " + std::string(classids[i]) + " htb rate " + std::to_string(rate_mbit) + "mbit ceil 1000mbit 2>/dev/null";
-
-        system(cmd.c_str());
-    }
+int PriorityScheduler::primary_focus_pid(WindowFocusBackend backend) {
+    return WindowFocusDetector::get_focused_pid(backend);
 }
 
+
+int PriorityScheduler::secondary_cursor_pid(WindowFocusBackend backend) {
+    return WindowFocusDetector::get_pid_under_cursor(backend);
+}
+
+
 void PriorityScheduler::poll_loop(const std::string& iface, std::atomic<bool>& running) {
+    (void)iface;
+
     WindowFocusBackend backend = WindowFocusDetector::detect_available_backend();
     if (backend == WindowFocusBackend::None) return;
     if (!cgroup_v2_mounted()) return;
 
     FocusDecayTracker focus_tracker;
     ContextPersistence context_persistence;
+    NetworkFlowClassifier flow_classifier;
+    bool audio_available = AudioActivityMonitor::available();
+
     std::unordered_map<int, PriorityTier> current_tier;
     std::unordered_map<int, int> ticks_in_tier;
-    std::vector<double> last_applied_tier_mass(4, -1.0);
-    int ticks_since_last_rebalance = kMinRebalanceIntervalTicks;
 
     int tick_count = 0;
 
     while (running.load(std::memory_order_relaxed)) {
-        int pid_under_cursor = WindowFocusDetector::get_pid_under_cursor(backend);
+        int keyboard_focus_pid = primary_focus_pid(backend);
+        int active_pid = keyboard_focus_pid > 0 ? keyboard_focus_pid : secondary_cursor_pid(backend);
 
-        if (pid_under_cursor > 0) {
-            focus_tracker.mark_focused(pid_under_cursor);
-            context_persistence.record_focus_change(pid_under_cursor);
+        if (active_pid > 0) {
+            focus_tracker.mark_focused(active_pid);
+            context_persistence.record_focus_change(active_pid);
 
-            if (context_persistence.has_companion(pid_under_cursor)) {
-                int companion = context_persistence.companion_pid(pid_under_cursor);
+            if (context_persistence.has_companion(active_pid)) {
+                int companion = context_persistence.companion_pid(active_pid);
 
                 if (companion > 0) {
                     focus_tracker.mark_focused(companion);
                 }
             }
+        }
+
+        std::unordered_set<int> audio_active_pids;
+        if (audio_available && tick_count % kNetworkRescanEveryTicks == 0) {
+            audio_active_pids = AudioActivityMonitor::pids_playing_audio();
         }
 
         if (tick_count % kNetworkRescanEveryTicks == 0) {
@@ -256,20 +214,36 @@ void PriorityScheduler::poll_loop(const std::string& iface, std::atomic<bool>& r
                 bool has_activity = activity.has_established_tcp || activity.udp_socket_count > 0;
 
                 focus_tracker.update_network_activity(pid, has_activity);
+
+                if (has_activity) {
+                    flow_classifier.sample(pid);
+                } else {
+                    flow_classifier.forget(pid);
+                }
             }
         }
-
-        std::vector<double> tier_mass(4, 0.0);
 
         for (int pid : focus_tracker.tracked_pids()) {
             bool currently_focused = focus_tracker.is_currently_focused(pid);
             bool has_network_activity = focus_tracker.has_network_activity(pid);
+            bool rescued_by_flow_shape = has_network_activity && flow_classifier.looks_interactive(pid);
 
             if (!currently_focused && !has_network_activity) {
                 continue;
             }
 
             double decay_factor = focus_tracker.decay_factor_for(pid);
+
+            if (rescued_by_flow_shape) {
+                decay_factor = std::max(decay_factor, 0.75);
+            }
+
+            bool demoted_by_audio_noise = !currently_focused && audio_available && audio_active_pids.count(pid) > 0 && !rescued_by_flow_shape;
+
+            if (demoted_by_audio_noise) {
+                decay_factor = std::min(decay_factor, 0.2);
+            }
+
             PriorityTier proposed_tier = tier_for_decay(decay_factor);
 
             auto tier_it = current_tier.find(pid);
@@ -303,23 +277,6 @@ void PriorityScheduler::poll_loop(const std::string& iface, std::atomic<bool>& r
             if (tier_changed) {
                 move_pid_to_tier(pid, effective_tier);
             }
-
-            size_t tier_index = static_cast<size_t>(effective_tier == PriorityTier::Hot ? 0
-                : effective_tier == PriorityTier::Warm ? 1
-                : effective_tier == PriorityTier::Cool ? 2
-                : 3);
-
-            double mass_contribution = currently_focused ? 100.0 : decay_factor * 100.0;
-            tier_mass[tier_index] += mass_contribution;
-        }
-
-        ++ticks_since_last_rebalance;
-
-        if (ticks_since_last_rebalance >= kMinRebalanceIntervalTicks
-            && tier_mass_shifted_significantly(last_applied_tier_mass, tier_mass)) {
-            rebalance_tier_bandwidth(iface, tier_mass);
-            last_applied_tier_mass = tier_mass;
-            ticks_since_last_rebalance = 0;
         }
 
         if (tick_count % kStaleEntryPruneEveryTicks == 0) {
@@ -331,6 +288,7 @@ void PriorityScheduler::poll_loop(const std::string& iface, std::atomic<bool>& r
     }
 }
 
+
 void PriorityScheduler::start(const std::string& iface) {
     running_.store(true, std::memory_order_relaxed);
 
@@ -338,6 +296,7 @@ void PriorityScheduler::start(const std::string& iface) {
         poll_loop(iface, running_);
     });
 }
+
 
 void PriorityScheduler::stop() {
     running_.store(false, std::memory_order_relaxed);

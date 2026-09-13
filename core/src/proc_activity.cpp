@@ -17,6 +17,7 @@ namespace betterconn {
 std::unordered_set<uint64_t> ProcessActivity::parse_proc_net_table(const std::string& path) {
     std::unordered_set<uint64_t> inodes;
     std::ifstream f(path);
+    
     if (!f) return inodes;
 
     std::string line;
@@ -25,6 +26,7 @@ std::unordered_set<uint64_t> ProcessActivity::parse_proc_net_table(const std::st
     while (std::getline(f, line)) {
         std::istringstream ss(line);
         std::string sl, local_addr, rem_addr, st, tx_rx, tr_tm, retr, uid, timeout, inode_str;
+        
         ss >> sl >> local_addr >> rem_addr >> st >> tx_rx >> tr_tm >> retr >> uid >> timeout >> inode_str;
 
         if (inode_str.empty()) continue;
@@ -37,6 +39,7 @@ std::unordered_set<uint64_t> ProcessActivity::parse_proc_net_table(const std::st
 
     return inodes;
 }
+
 
 std::unordered_set<uint64_t> ProcessActivity::collect_socket_inodes(int pid) {
     std::unordered_set<uint64_t> inodes;
@@ -52,6 +55,7 @@ std::unordered_set<uint64_t> ProcessActivity::collect_socket_inodes(int pid) {
         if (entry->d_name[0] == '.') continue;
 
         std::string fd_path = fd_dir + "/" + entry->d_name;
+
         ssize_t len = readlink(fd_path.c_str(), link_target, sizeof(link_target) - 1);
         if (len <= 0) continue;
 
@@ -73,8 +77,10 @@ std::unordered_set<uint64_t> ProcessActivity::collect_socket_inodes(int pid) {
     }
 
     closedir(dir);
+
     return inodes;
 }
+
 
 ProcessNetActivity ProcessActivity::read_net_activity(int pid) {
     ProcessNetActivity activity{0, 0, false};
@@ -87,6 +93,7 @@ ProcessNetActivity ProcessActivity::read_net_activity(int pid) {
     auto tcp6_inodes = parse_proc_net_table("/proc/net/tcp6");
     auto udp_inodes = parse_proc_net_table("/proc/net/udp");
     auto udp6_inodes = parse_proc_net_table("/proc/net/udp6");
+
 
     for (uint64_t inode : proc_sockets) {
         bool is_tcp = tcp_inodes.count(inode) > 0 || tcp6_inodes.count(inode) > 0;
@@ -105,12 +112,20 @@ ProcessNetActivity ProcessActivity::read_net_activity(int pid) {
     return activity;
 }
 
+
+std::unordered_set<uint64_t> ProcessActivity::collect_socket_inodes_for(int pid) {
+    return collect_socket_inodes(pid);
+}
+
+
 double ProcessActivity::read_evdev_last_activity_seconds() {
     std::string input_dir = "/dev/input";
+
     if (!std::filesystem::exists(input_dir)) return -1.0;
 
     double newest_delta = -1.0;
     struct stat st;
+
 
     for (const auto& entry : std::filesystem::directory_iterator(input_dir)) {
         std::string name = entry.path().filename().string();
@@ -129,8 +144,10 @@ double ProcessActivity::read_evdev_last_activity_seconds() {
     return newest_delta;
 }
 
+
 double ProcessActivity::seconds_since_last_input() {
     double delta = read_evdev_last_activity_seconds();
+    
     return delta;
 }
 }

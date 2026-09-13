@@ -14,9 +14,17 @@ struct SysctlParam {
     std::string value;
 };
 
+
+enum class LatencyProfile {
+    Latency,
+    Balanced,
+    Throughput,
+};
+
+
 class Optimizer {
 public:
-    void apply(const std::string& forced_iface = "");
+    void apply(const std::string& forced_iface="", LatencyProfile profile=LatencyProfile::Balanced);
     void revert();
     bool is_active() const;
 
@@ -28,10 +36,10 @@ private:
     static void apply_iptables();
     static void revert_iptables();
     static std::vector<std::string> iptables_add_rules();
-    static void write_persistence(const std::string& iface);
+    static void write_persistence(const std::string& iface, LatencyProfile profile);
     static void remove_persistence();
     static std::string detect_interface();
-    static void apply_nic_tuning(const std::string& iface);
+    static void apply_nic_tuning(const std::string& iface, LatencyProfile profile);
     static void revert_nic_tuning();
     static bool is_wifi(const std::string& iface);
     static void apply_interface_qdisc(const std::string& iface);
@@ -44,5 +52,7 @@ private:
     static void revert_dns();
     static void apply_focus_priority(const std::string& iface);
     static void revert_focus_priority(const std::string& iface);
+    static std::string profile_to_string(LatencyProfile profile);
+    static std::string ethtool_coalesce_args(LatencyProfile profile);
 };
 }

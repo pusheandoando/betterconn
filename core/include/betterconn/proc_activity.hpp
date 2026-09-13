@@ -16,10 +16,12 @@ struct ProcessNetActivity {
     bool has_established_tcp;
 };
 
+
 class ProcessActivity {
 public:
     static ProcessNetActivity read_net_activity(int pid);
     static double seconds_since_last_input();
+    static std::unordered_set<uint64_t> collect_socket_inodes_for(int pid);
 
 private:
     static std::unordered_set<uint64_t> collect_socket_inodes(int pid);

@@ -23,9 +23,10 @@ struct TransitionStat {
     }
 };
 
+
 class ContextPersistence {
 public:
-    explicit ContextPersistence(size_t history_size = 32);
+    explicit ContextPersistence(size_t history_size=32);
 
     void record_focus_change(int pid);
     bool has_companion(int pid) const;

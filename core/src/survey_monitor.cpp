@@ -13,9 +13,11 @@
 namespace betterconn {
 static constexpr int kSurveyIntervalMs = 500;
 
+
 bool SurveyMonitor::is_wifi(const std::string& iface) {
     return std::filesystem::exists("/sys/class/net/" + iface + "/phy80211");
 }
+
 
 SurveySample SurveyMonitor::read_active_channel_survey(const std::string& iface) {
     SurveySample sample{-1.0, -1.0, -1.0, 0.0, false};
@@ -75,9 +77,8 @@ SurveySample SurveyMonitor::read_active_channel_survey(const std::string& iface)
     return sample;
 }
 
-void SurveyMonitor::monitor_loop(const std::string& iface, std::atomic<bool>& running,
-                                  std::atomic<double>& busy_ratio, std::atomic<double>& noise_dbm,
-                                  std::atomic<bool>& has_data) {
+
+void SurveyMonitor::monitor_loop(const std::string& iface, std::atomic<bool>& running, std::atomic<double>& busy_ratio, std::atomic<double>& noise_dbm, std::atomic<bool>& has_data) {
     if (!is_wifi(iface)) return;
 
     double prev_active_time = -1.0;
@@ -115,6 +116,7 @@ void SurveyMonitor::monitor_loop(const std::string& iface, std::atomic<bool>& ru
     }
 }
 
+
 void SurveyMonitor::start(const std::string& iface) {
     running_.store(true, std::memory_order_relaxed);
 
@@ -123,19 +125,23 @@ void SurveyMonitor::start(const std::string& iface) {
     });
 }
 
+
 void SurveyMonitor::stop() {
     running_.store(false, std::memory_order_relaxed);
     
     if (monitor_thread_.joinable()) monitor_thread_.join();
 }
 
+
 double SurveyMonitor::busy_ratio() const {
     return busy_ratio_.load(std::memory_order_relaxed);
 }
 
+
 double SurveyMonitor::noise_dbm() const {
     return noise_dbm_.load(std::memory_order_relaxed);
 }
+
 
 bool SurveyMonitor::has_data() const {
     return has_data_.load(std::memory_order_relaxed);

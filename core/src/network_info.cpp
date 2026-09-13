@@ -29,15 +29,18 @@ std::string NetworkInfo::run_and_capture(const std::string& cmd) {
     return output;
 }
 
+
 std::string NetworkInfo::nmcli_device_get(const std::string& field, const std::string& iface) {
     std::string cmd = "nmcli -t -g " + field + " device show " + iface + " 2>/dev/null";
     
     return run_and_capture(cmd);
 }
 
+
 std::string NetworkInfo::active_connection_name(const std::string& iface) {
     return nmcli_device_get("GENERAL.CONNECTION", iface);
 }
+
 
 std::string NetworkInfo::nmcli_get(const std::string& field, const std::string& connection_name) {
     std::string cmd = "nmcli -t -g " + field + " connection show \"" + connection_name + "\" 2>/dev/null";
@@ -45,11 +48,13 @@ std::string NetworkInfo::nmcli_get(const std::string& field, const std::string& 
     return run_and_capture(cmd);
 }
 
+
 bool NetworkInfo::connection_is_wifi(const std::string& connection_name) {
     std::string type = nmcli_get("connection.type", connection_name);
 
     return type == "802-11-wireless" || type == "wifi";
 }
+
 
 std::string NetworkInfo::connection_key_mgmt(const std::string& connection_name) {
     std::string cmd = "nmcli -t -g 802-11-wireless-security.key-mgmt connection show \"" + connection_name + "\" 2>/dev/null";
@@ -57,11 +62,13 @@ std::string NetworkInfo::connection_key_mgmt(const std::string& connection_name)
     return run_and_capture(cmd);
 }
 
+
 bool NetworkInfo::connection_has_8021x(const std::string& connection_name) {
     std::string cmd = "nmcli -t -g 802-1x.eap connection show \"" + connection_name + "\" 2>/dev/null";
 
     return !run_and_capture(cmd).empty();
 }
+
 
 std::string NetworkInfo::unescape_nmcli(const std::string& value) {
     std::string result;
@@ -79,6 +86,7 @@ std::string NetworkInfo::unescape_nmcli(const std::string& value) {
     return result;
 }
 
+
 std::string NetworkInfo::first_value(const std::string& raw) {
     if (raw.empty()) return raw;
 
@@ -94,10 +102,10 @@ std::string NetworkInfo::first_value(const std::string& raw) {
     return first_entry;
 }
 
+
 void NetworkInfo::print_info(const std::string& iface) {
     if (iface.empty()) {
         std::cerr << CLR_LRED "[!!] could not detect an active network interface\n" CLR_RESET;
-
         return;
     }
 
@@ -105,7 +113,6 @@ void NetworkInfo::print_info(const std::string& iface) {
 
     if (connection_name.empty()) {
         std::cerr << CLR_LRED "[!!] no active network connection on " << iface << "\n" CLR_RESET;
-
         return;
     }
 
@@ -140,10 +147,10 @@ void NetworkInfo::print_info(const std::string& iface) {
     std::cout << "\n";
 }
 
+
 void NetworkInfo::print_secrets(const std::string& iface) {
     if (iface.empty()) {
         std::cerr << CLR_LRED "[!!] could not detect an active network interface\n" CLR_RESET;
-
         return;
     }
 
@@ -151,7 +158,6 @@ void NetworkInfo::print_secrets(const std::string& iface) {
 
     if (connection_name.empty()) {
         std::cerr << CLR_LRED "[!!] no active network connection on " << iface << "\n" CLR_RESET;
-
         return;
     }
 
@@ -198,6 +204,8 @@ void NetworkInfo::print_secrets(const std::string& iface) {
 
     std::cout << "\n";
 }
+
+
 void NetworkInfo::force_network_on(const std::string& iface) {
     std::cout << CLR_YELLOW "[..] forcing network interface/NetworkManager on...\n" CLR_RESET;
 
@@ -221,6 +229,7 @@ void NetworkInfo::force_network_on(const std::string& iface) {
 
     std::cout << CLR_LGREEN "[OK] attempted to force network on\n" CLR_RESET;
 }
+
 
 void NetworkInfo::force_network_off(const std::string& iface) {
     std::cout << CLR_YELLOW "[..] forcing network interface/NetworkManager off...\n" CLR_RESET;

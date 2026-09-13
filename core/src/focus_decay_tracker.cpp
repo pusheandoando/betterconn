@@ -11,12 +11,14 @@ namespace betterconn {
 FocusDecayTracker::FocusDecayTracker(double half_life_seconds) : half_life_seconds_(half_life_seconds) {
 }
 
+
 void FocusDecayTracker::mark_focused(int pid) {
     if (pid <= 0) return;
 
     currently_focused_pid_ = pid;
     states_[pid].last_focus_time = std::chrono::steady_clock::now();
 }
+
 
 void FocusDecayTracker::update_network_activity(int pid, bool has_activity) {
     auto it = states_.find(pid);
@@ -25,9 +27,11 @@ void FocusDecayTracker::update_network_activity(int pid, bool has_activity) {
     it->second.has_network_activity = has_activity;
 }
 
+
 bool FocusDecayTracker::is_currently_focused(int pid) const {
     return pid > 0 && pid == currently_focused_pid_;
 }
+
 
 double FocusDecayTracker::decay_factor_for(int pid) const {
     if (is_currently_focused(pid)) return 1.0;
@@ -47,12 +51,14 @@ double FocusDecayTracker::decay_factor_for(int pid) const {
     return std::exp(-elapsed_seconds / half_life_seconds_);
 }
 
+
 bool FocusDecayTracker::has_network_activity(int pid) const {
     auto it = states_.find(pid);
     if (it == states_.end()) return false;
 
     return it->second.has_network_activity;
 }
+
 
 std::vector<int> FocusDecayTracker::tracked_pids() const {
     std::vector<int> pids;
@@ -64,6 +70,7 @@ std::vector<int> FocusDecayTracker::tracked_pids() const {
 
     return pids;
 }
+
 
 void FocusDecayTracker::forget_stale_entries(double max_age_seconds) {
     auto now = std::chrono::steady_clock::now();

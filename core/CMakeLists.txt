@@ -6,7 +6,6 @@ add_library(betterconn_core
     src/cleaner.cpp
     src/tuner.cpp
     src/survey_monitor.cpp
-    src/focus_priority.cpp
     src/window_focus_backend.cpp
     src/proc_activity.cpp
     src/context_persistence.cpp
@@ -14,6 +13,9 @@ add_library(betterconn_core
     src/focus_decay_tracker.cpp
     src/network_info.cpp
     src/bufferbloat_shaper.cpp
+    src/irq_affinity.cpp
+    src/audio_activity_monitor.cpp
+    src/network_flow_classifier.cpp
 )
 target_include_directories(betterconn_core PUBLIC include)
 

@@ -32,6 +32,7 @@ void Cleaner::run() {
     std::filesystem::remove("/etc/NetworkManager/conf.d/betterconn.conf", ec);
     std::filesystem::remove("/etc/systemd/resolved.conf.d/betterconn.conf", ec);
     std::filesystem::remove_all("/sys/fs/cgroup/betterconn_focus", ec);
+    
     system("iptables -t mangle -D OUTPUT -m cgroup --path betterconn_focus -j MARK --set-mark 0x1f 2>/dev/null");
 
     std::cout << CLR_YELLOW "[..] reloading system services...\n" CLR_RESET;

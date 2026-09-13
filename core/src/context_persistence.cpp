@@ -11,6 +11,7 @@ namespace betterconn {
 ContextPersistence::ContextPersistence(size_t history_size) : history_size_(history_size) {
 }
 
+
 void ContextPersistence::record_focus_change(int pid) {
     if (pid <= 0) return;
 
@@ -33,11 +34,11 @@ void ContextPersistence::record_focus_change(int pid) {
     }
 }
 
+
 bool ContextPersistence::alternation_pattern_detected(const std::deque<int>& history, int pid_a, int pid_b) {
     if (history.size() < 4) return false;
 
     size_t alternations = 0;
-
     for (size_t i = 1; i < history.size(); ++i) {
         bool switches_between_pair = (history[i - 1] == pid_a && history[i] == pid_b) || (history[i - 1] == pid_b && history[i] == pid_a);
 
@@ -47,9 +48,11 @@ bool ContextPersistence::alternation_pattern_detected(const std::deque<int>& his
     return alternations >= 3;
 }
 
+
 bool ContextPersistence::has_companion(int pid) const {
     return companion_pid(pid) > 0;
 }
+
 
 int ContextPersistence::companion_pid(int pid) const {
     if (recent_focus_history_.empty()) return -1;
@@ -63,7 +66,6 @@ int ContextPersistence::companion_pid(int pid) const {
 
     int best_candidate = -1;
     int best_count = 0;
-
     for (const auto& entry : co_occurrence_counts) {
         if (entry.second > best_count && alternation_pattern_detected(recent_focus_history_, pid, entry.first)) {
             best_count = entry.second;
@@ -74,6 +76,7 @@ int ContextPersistence::companion_pid(int pid) const {
     return best_candidate;
 }
 
+
 double ContextPersistence::transition_probability(int from_pid, int to_pid) const {
     auto from_it = transitions_.find(from_pid);
     if (from_it == transitions_.end()) return 0.0;
@@ -83,6 +86,7 @@ double ContextPersistence::transition_probability(int from_pid, int to_pid) cons
 
     return to_it->second.probability();
 }
+
 
 int ContextPersistence::predicted_next_pid(int current_pid) const {
     auto from_it = transitions_.find(current_pid);

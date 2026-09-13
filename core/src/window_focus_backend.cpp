@@ -15,17 +15,20 @@ bool WindowFocusDetector::xdotool_available() {
     return system("command -v xdotool >/dev/null 2>&1") == 0;
 }
 
+
 bool WindowFocusDetector::swaymsg_available() {
     if (system("command -v swaymsg >/dev/null 2>&1") != 0) return false;
 
     return system("swaymsg -t get_version >/dev/null 2>&1") == 0;
 }
 
+
 bool WindowFocusDetector::hyprctl_available() {
     if (system("command -v hyprctl >/dev/null 2>&1") != 0) return false;
 
     return system("hyprctl version >/dev/null 2>&1") == 0;
 }
+
 
 WindowFocusBackend WindowFocusDetector::detect_available_backend() {
     if (xdotool_available() && get_focused_pid(WindowFocusBackend::X11Xdotool) > 0) {
@@ -42,6 +45,7 @@ WindowFocusBackend WindowFocusDetector::detect_available_backend() {
 
     return WindowFocusBackend::None;
 }
+
 
 int WindowFocusDetector::run_and_capture_pid(const char* command, const char* anchor_key) {
     FILE* p = popen(command, "r");
@@ -73,6 +77,7 @@ int WindowFocusDetector::run_and_capture_pid(const char* command, const char* an
     }
 }
 
+
 bool WindowFocusDetector::parse_shell_field(const std::string& output, const char* key, long& out_value) {
     auto pos = output.find(key);
     if (pos == std::string::npos) return false;
@@ -101,6 +106,7 @@ bool WindowFocusDetector::parse_shell_field(const std::string& output, const cha
     }
 }
 
+
 int WindowFocusDetector::get_focused_pid_x11() {
     FILE* p = popen("xdotool getactivewindow getwindowpid 2>/dev/null", "r");
     if (!p) return -1;
@@ -120,6 +126,7 @@ int WindowFocusDetector::get_focused_pid_x11() {
         return -1;
     }
 }
+
 
 int WindowFocusDetector::get_focused_pid_sway() {
     FILE* p = popen("swaymsg -r -t get_tree 2>/dev/null", "r");
@@ -173,9 +180,11 @@ int WindowFocusDetector::get_focused_pid_sway() {
     }
 }
 
+
 int WindowFocusDetector::get_focused_pid_hyprland() {
     return run_and_capture_pid("hyprctl activewindow -j 2>/dev/null", "\"pid\":");
 }
+
 
 int WindowFocusDetector::get_pid_under_cursor_x11() {
     FILE* p = popen("xdotool getmouselocation --shell 2>/dev/null", "r");
@@ -195,6 +204,7 @@ int WindowFocusDetector::get_pid_under_cursor_x11() {
 
     return run_and_capture_pid(cmd.c_str(), "");
 }
+
 
 int WindowFocusDetector::get_pid_under_cursor_hyprland() {
     FILE* cursor_pipe = popen("hyprctl cursorpos -j 2>/dev/null", "r");
@@ -282,6 +292,7 @@ int WindowFocusDetector::get_pid_under_cursor_hyprland() {
     }
 }
 
+
 int WindowFocusDetector::get_focused_pid(WindowFocusBackend backend) {
     switch (backend) {
         case WindowFocusBackend::X11Xdotool:
@@ -295,6 +306,7 @@ int WindowFocusDetector::get_focused_pid(WindowFocusBackend backend) {
             return -1;
     }
 }
+
 
 int WindowFocusDetector::get_pid_under_cursor(WindowFocusBackend backend) {
     switch (backend) {

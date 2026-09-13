@@ -22,6 +22,7 @@ struct NetSample {
     bool valid;
 };
 
+
 class Tuner {
 public:
     void start(const std::string& iface);

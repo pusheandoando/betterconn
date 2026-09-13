@@ -15,17 +15,19 @@ struct FocusDecayState {
     bool has_network_activity = false;
 };
 
+
 class FocusDecayTracker {
 public:
-    explicit FocusDecayTracker(double half_life_seconds = 25.0);
+    explicit FocusDecayTracker(double half_life_seconds=25.0);
 
     void mark_focused(int pid);
     void update_network_activity(int pid, bool has_activity);
-    void forget_stale_entries(double max_age_seconds = 300.0);
+    void forget_stale_entries(double max_age_seconds=300.0);
 
     bool is_currently_focused(int pid) const;
     double decay_factor_for(int pid) const;
     bool has_network_activity(int pid) const;
+    
     std::vector<int> tracked_pids() const;
 
 private:

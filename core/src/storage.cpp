@@ -21,9 +21,11 @@ std::filesystem::path Storage::dir() {
     return std::filesystem::path(home) / ".betterconn";
 }
 
+
 void Storage::ensure_dir() {
     std::filesystem::create_directories(dir());
 }
+
 
 void Storage::save(const std::string& name, const std::string& content) {
     ensure_dir();
@@ -35,6 +37,7 @@ void Storage::save(const std::string& name, const std::string& content) {
     
     f << content;
 }
+
 
 std::string Storage::load(const std::string& name) {
     std::ifstream f(dir() / name);
@@ -49,9 +52,11 @@ std::string Storage::load(const std::string& name) {
     return ss.str();
 }
 
+
 bool Storage::exists(const std::string& name) {
     return std::filesystem::exists(dir() / name);
 }
+
 
 void Storage::remove_file(const std::string& name) {
     std::filesystem::remove(dir() / name);
