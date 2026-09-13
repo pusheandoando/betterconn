@@ -1,4 +1,4 @@
-# betterconn (v1.0.7)
+# betterconn (v1.0.8)
 Linux network optimizer focused on Debian. Maximizes connection quality for gaming, streaming, and general use by applying proven kernel-level and traffic tuning at runtime, with adaptive real-time adjustment and full backup and restore of original settings. Written by Christian (@pusheandoando)
 
 
