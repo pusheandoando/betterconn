@@ -10,7 +10,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     container:
-      image: debian:11
+      image: debian:12
 
     steps:
       - name: Checkout
