@@ -56,7 +56,6 @@ void print_help() {
     std::cout << "  " CLR_CYAN "betterconn start" CLR_RESET "                         Apply all network optimizations (persists across reboots)\n";
     std::cout << "  " CLR_CYAN "betterconn start --skip-warning" CLR_RESET "          Skip the security warning prompt\n";
     std::cout << "  " CLR_CYAN "betterconn start --interface <iface>" CLR_RESET "     Apply optimizations on a specific interface\n";
-    std::cout << "  " CLR_CYAN "betterconn start --profile <mode>" CLR_RESET "        Coalescing profile: latency, balanced (default), throughput\n";
     std::cout << "  " CLR_CYAN "betterconn stop" CLR_RESET "                          Revert to original system settings and stop the daemon\n";
     std::cout << "  " CLR_CYAN "betterconn status" CLR_RESET "                        Show live connection stats and state\n";
     std::cout << "  " CLR_CYAN "betterconn list" CLR_RESET "                          List all available network interfaces\n";
@@ -64,6 +63,7 @@ void print_help() {
     std::cout << "  " CLR_CYAN "betterconn -v, --version" CLR_RESET "                 Show installed version\n";
     std::cout << "  " CLR_CYAN "betterconn -h, --help" CLR_RESET "                    Show this message\n";
     std::cout << "  " CLR_CYAN "betterconn network" CLR_RESET "                       Show info for the currently active network\n";
+    std::cout << "  " CLR_CYAN "betterconn network -h, --help" CLR_RESET "            Show every option of the network command\n";
     std::cout << "\n";
     std::cout << CLR_WHITE "Official repo: " CLR_RESET CLR_CYAN "https://github.com/pusheandoando/betterconn" CLR_RESET "\n";
 }
@@ -239,7 +239,6 @@ int main(int argc, char* argv[]) {
 
             bool skip_warning = false;
             std::string iface;
-            betterconn::LatencyProfile profile = betterconn::LatencyProfile::Balanced;
 
 
             for (int i = 2; i < argc; ++i) {
@@ -254,24 +253,6 @@ int main(int argc, char* argv[]) {
                     }
 
                     iface = argv[++i];
-                } else if (arg == "--profile") {
-                    if (i + 1 >= argc) {
-                        std::cerr << CLR_LRED "[!!] --profile requires latency, balanced, or throughput\n" CLR_RESET;
-                        return 1;
-                    }
-
-                    std::string profile_value = argv[++i];
-
-                    if (profile_value == "latency") {
-                        profile = betterconn::LatencyProfile::Latency;
-                    } else if (profile_value == "balanced") {
-                        profile = betterconn::LatencyProfile::Balanced;
-                    } else if (profile_value == "throughput") {
-                        profile = betterconn::LatencyProfile::Throughput;
-                    } else {
-                        std::cerr << CLR_LRED "[!!] --profile requires latency, balanced, or throughput\n" CLR_RESET;
-                        return 1;
-                    }
                 } else {
                     std::cerr << CLR_LRED "[!!] unknown option: " << arg << "\n" CLR_RESET;
                     std::cerr << CLR_WHITE "run: betterconn -h\n" CLR_RESET;
@@ -284,7 +265,7 @@ int main(int argc, char* argv[]) {
                 return 0;
             }
 
-            opt.apply(iface, profile);
+            opt.apply(iface);
             std::cout << CLR_LGREEN "[OK] optimizations applied\n" CLR_RESET;
             betterconn::Status().print();
 
@@ -327,7 +308,7 @@ int main(int argc, char* argv[]) {
         } else if (cmd == "clean") {
             require_root();
             
-            if (betterconn::Storage::exists("state") && betterconn::Storage::load("state") == "active") {
+            if (betterconn::Optimizer().is_active()) {
                 std::cerr << CLR_LRED "[!!] betterconn is active, run stop first\n" CLR_RESET;
                 return 1;
             }

@@ -56,13 +56,15 @@ private:
     static void rtt_loop(std::atomic<bool>& running, SharedSample& s);
 
     static double read_rtt_ms();
+    static double read_passive_rtt_ms();
+    static std::string read_default_gateway();
     static double read_rx_bps(const std::string& iface, int ms);
     static double read_tx_bps(const std::string& iface, int ms);
     static double read_rssi_dbm(const std::string& iface);
     static double read_tx_retries(const std::string& iface);
     static bool is_wifi(const std::string& iface);
     static void write_sysctl(const std::string& key, const std::string& value);
-    static void set_qdisc_target(const std::string& iface, int target_ms);
+    static void set_qdisc_rtt(const std::string& iface, int rtt_ms);
     static uint64_t compute_bdp_buf(double rx_bps, double rtt_ms);
     static void qdisc_loop(const std::string& iface, std::atomic<bool>& running, SharedSample& s, SurveyMonitor& survey, PriorityScheduler& scheduler);
 };

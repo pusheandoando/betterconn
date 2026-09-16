@@ -36,6 +36,19 @@ std::string Status::detect_interface() {
 }
 
 
+std::string Status::active_profile() {
+    if (!Storage::exists("profile")) return "auto";
+
+    std::string value = Storage::load("profile");
+
+    while (!value.empty() && (value.back() == '\n' || value.back() == '\r' || value.back() == ' ')) {
+        value.pop_back();
+    }
+
+    return value.empty() ? "auto" : value;
+}
+
+
 std::pair<double, double> Status::measure_speed(const std::string& iface) {
     auto read_bytes = [&]() -> std::pair<uint64_t, uint64_t> {
         std::ifstream f("/proc/net/dev");
@@ -148,6 +161,7 @@ void Status::print() const {
     std::cout << CLR_WHITE "State:              " CLR_RESET
               << (active ? CLR_LGREEN "ACTIVE" CLR_RESET : CLR_LRED "INACTIVE" CLR_RESET) << "\n";
     std::cout << CLR_WHITE "Interface:          " CLR_RESET CLR_CYAN << iface << CLR_RESET "\n";
+    std::cout << CLR_WHITE "Profile:            " CLR_RESET CLR_CYAN << active_profile() << " (auto)" << CLR_RESET "\n";
 
     if (iface != "unknown") {
         std::cout << CLR_YELLOW "Sampling speeds (1s)..." CLR_RESET << std::flush;

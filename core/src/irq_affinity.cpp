@@ -143,40 +143,69 @@ std::vector<std::string> IrqAffinity::list_queue_dirs(const std::string& iface, 
 }
 
 
+std::string IrqAffinity::read_first_line(const std::string& path) {
+    std::ifstream f(path);
+    if (!f) return "";
+
+    std::string line;
+    std::getline(f, line);
+
+    return line;
+}
+
+
 void IrqAffinity::apply_rps_xps_fallback(const std::string& iface, int cpu_count) {
     std::string mask = all_cpus_mask_hex(cpu_count);
+    std::ostringstream saved;
 
     for (const auto& rx_dir : list_queue_dirs(iface, "rx-")) {
-        std::string path = "/sys/class/net/" + iface + "/queues/" + rx_dir + "/rps_cpus";
+        std::string relative_path = rx_dir + "/rps_cpus";
+        std::string path = "/sys/class/net/" + iface + "/queues/" + relative_path;
+
+        saved << relative_path << " " << read_first_line(path) << "\n";
+
         std::ofstream f(path);
 
         if (f) f << mask;
     }
 
     for (const auto& tx_dir : list_queue_dirs(iface, "tx-")) {
-        std::string path = "/sys/class/net/" + iface + "/queues/" + tx_dir + "/xps_cpus";
+        std::string relative_path = tx_dir + "/xps_cpus";
+        std::string path = "/sys/class/net/" + iface + "/queues/" + relative_path;
+
+        saved << relative_path << " " << read_first_line(path) << "\n";
+
         std::ofstream f(path);
 
         if (f) f << mask;
     }
 
+    // A zero mask is not the driver default, several drivers ship a non zero xps mask per queue, so the original has to be kept verbatim
+    Storage::save("rps_xps_saved", saved.str());
     Storage::save("rps_xps_iface", iface);
 }
 
 
 void IrqAffinity::revert_rps_xps_fallback(const std::string& iface) {
-    for (const auto& rx_dir : list_queue_dirs(iface, "rx-")) {
-        std::string path = "/sys/class/net/" + iface + "/queues/" + rx_dir + "/rps_cpus";
-        std::ofstream f(path);
+    if (Storage::exists("rps_xps_saved")) {
+        std::istringstream ss(Storage::load("rps_xps_saved"));
+        std::string line;
 
-        if (f) f << "0";
-    }
+        while (std::getline(ss, line)) {
+            std::istringstream entry(line);
+            std::string relative_path;
+            std::string mask;
 
-    for (const auto& tx_dir : list_queue_dirs(iface, "tx-")) {
-        std::string path = "/sys/class/net/" + iface + "/queues/" + tx_dir + "/xps_cpus";
-        std::ofstream f(path);
+            entry >> relative_path >> mask;
 
-        if (f) f << "0";
+            if (relative_path.empty() || mask.empty()) continue;
+
+            std::ofstream f("/sys/class/net/" + iface + "/queues/" + relative_path);
+
+            if (f) f << mask;
+        }
+
+        Storage::remove_file("rps_xps_saved");
     }
 
     Storage::remove_file("rps_xps_iface");

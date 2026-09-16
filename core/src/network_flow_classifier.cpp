@@ -1,71 +1,23 @@
 // core/src/network_flow_classifier.cpp
 #include "betterconn/network_flow_classifier.hpp"
-#include "betterconn/proc_activity.hpp"
 
-#include <cmath>
-#include <fstream>
-#include <sstream>
 #include <algorithm>
-#include <unordered_set>
 
 
 
 
 
 namespace betterconn {
-static uint64_t hex_queue_bytes(const std::string& field) {
-    auto colon = field.find(':');
-    if (colon == std::string::npos) return 0;
-
-    try {
-        return std::stoull(field.substr(0, colon), nullptr, 16) + std::stoull(field.substr(colon + 1), nullptr, 16);
-    } catch (...) {
-        return 0;
-    }
-}
-
-
-static uint64_t sum_queue_bytes_for_inodes(const std::string& path, const std::unordered_set<uint64_t>& inodes) {
-    std::ifstream f(path);
-    if (!f) return 0;
-
-    std::string line;
-    std::getline(f, line);
-
+uint64_t NetworkFlowClassifier::queue_occupancy(const std::unordered_set<uint64_t>& socket_inodes, const SocketStateSnapshot& snapshot) {
     uint64_t total = 0;
-    while (std::getline(f, line)) {
-        std::istringstream ss(line);
-        std::string sl, local_addr, rem_addr, st, tx_rx, tr_tm, retr, uid, timeout, inode_str;
 
-        ss >> sl >> local_addr >> rem_addr >> st >> tx_rx >> tr_tm >> retr >> uid >> timeout >> inode_str;
+    for (uint64_t inode : socket_inodes) {
+        auto it = snapshot.queued_bytes_by_inode.find(inode);
 
-        if (inode_str.empty()) continue;
+        if (it == snapshot.queued_bytes_by_inode.end()) continue;
 
-        uint64_t inode = 0;
-        try {
-            inode = std::stoull(inode_str);
-        } catch (...) {
-            continue;
-        }
-
-        if (inodes.count(inode) == 0) continue;
-
-        total += hex_queue_bytes(tx_rx);
+        total += it->second;
     }
-
-    return total;
-}
-
-
-uint64_t NetworkFlowClassifier::read_socket_queue_occupancy(int pid) {
-    auto inodes = ProcessActivity::collect_socket_inodes_for(pid);
-    if (inodes.empty()) return 0;
-
-    uint64_t total = 0;
-    total += sum_queue_bytes_for_inodes("/proc/net/tcp", inodes);
-    total += sum_queue_bytes_for_inodes("/proc/net/tcp6", inodes);
-    total += sum_queue_bytes_for_inodes("/proc/net/udp", inodes);
-    total += sum_queue_bytes_for_inodes("/proc/net/udp6", inodes);
 
     return total;
 }
@@ -90,13 +42,12 @@ double NetworkFlowClassifier::sample_variance(const std::deque<uint64_t>& values
 }
 
 
-void NetworkFlowClassifier::sample(int pid) {
+void NetworkFlowClassifier::sample(int pid, const std::unordered_set<uint64_t>& socket_inodes, const SocketStateSnapshot& snapshot) {
     if (pid <= 0) return;
 
-    uint64_t occupancy = read_socket_queue_occupancy(pid);
     auto& entry = samples_[pid];
 
-    entry.queue_occupancy_bytes.push_back(occupancy);
+    entry.queue_occupancy_bytes.push_back(queue_occupancy(socket_inodes, snapshot));
 
     if (entry.queue_occupancy_bytes.size() > kSampleWindow) {
         entry.queue_occupancy_bytes.pop_front();

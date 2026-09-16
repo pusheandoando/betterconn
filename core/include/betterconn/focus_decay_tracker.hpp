@@ -21,6 +21,7 @@ public:
     explicit FocusDecayTracker(double half_life_seconds=25.0);
 
     void mark_focused(int pid);
+    void mark_recently_used(int pid);
     void update_network_activity(int pid, bool has_activity);
     void forget_stale_entries(double max_age_seconds=300.0);
 

@@ -25,6 +25,7 @@ private:
     static void apply_rps_xps_fallback(const std::string& iface, int cpu_count);
     static void revert_rps_xps_fallback(const std::string& iface);
     static std::vector<std::string> list_queue_dirs(const std::string& iface, const std::string& kind);
+    static std::string read_first_line(const std::string& path);
     static std::string cpu_mask_hex(int cpu);
     static std::string all_cpus_mask_hex(int cpu_count);
 };

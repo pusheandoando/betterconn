@@ -16,6 +16,15 @@ void FocusDecayTracker::mark_focused(int pid) {
     if (pid <= 0) return;
 
     currently_focused_pid_ = pid;
+
+    states_[pid].last_focus_time = std::chrono::steady_clock::now();
+}
+
+
+// Refreshing a companion process must not steal the focus slot, otherwise the window the user is actually working in loses its own top tier to the process that merely accompanies it
+void FocusDecayTracker::mark_recently_used(int pid) {
+    if (pid <= 0) return;
+
     states_[pid].last_focus_time = std::chrono::steady_clock::now();
 }
 
@@ -62,6 +71,7 @@ bool FocusDecayTracker::has_network_activity(int pid) const {
 
 std::vector<int> FocusDecayTracker::tracked_pids() const {
     std::vector<int> pids;
+    
     pids.reserve(states_.size());
 
     for (const auto& entry : states_) {

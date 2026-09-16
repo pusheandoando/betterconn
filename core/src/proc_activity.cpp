@@ -1,7 +1,8 @@
 // core/src/proc_activity.cpp
 #include "betterconn/proc_activity.hpp"
 
-#include <cstring>
+#include <ctime>
+#include <string>
 #include <fstream>
 #include <sstream>
 #include <dirent.h>
@@ -14,31 +15,74 @@
 
 
 namespace betterconn {
-std::unordered_set<uint64_t> ProcessActivity::parse_proc_net_table(const std::string& path) {
-    std::unordered_set<uint64_t> inodes;
+static uint64_t parse_queue_bytes(const std::string& field) {
+    auto colon = field.find(':');
+    if (colon == std::string::npos) return 0;
+
+    try {
+        return std::stoull(field.substr(0, colon), nullptr, 16) + std::stoull(field.substr(colon + 1), nullptr, 16);
+    } catch (...) {
+        return 0;
+    }
+}
+
+
+void ProcessActivity::merge_proc_net_table(const std::string& path, bool tcp_table, SocketStateSnapshot& snapshot) {
     std::ifstream f(path);
-    
-    if (!f) return inodes;
+
+    if (!f) return;
 
     std::string line;
     std::getline(f, line);
 
     while (std::getline(f, line)) {
         std::istringstream ss(line);
-        std::string sl, local_addr, rem_addr, st, tx_rx, tr_tm, retr, uid, timeout, inode_str;
-        
-        ss >> sl >> local_addr >> rem_addr >> st >> tx_rx >> tr_tm >> retr >> uid >> timeout >> inode_str;
+        std::string sl, local_addr, rem_addr, state, queues, timers, retransmits, uid, timeout, inode_str;
+
+        ss >> sl >> local_addr >> rem_addr >> state >> queues >> timers >> retransmits >> uid >> timeout >> inode_str;
 
         if (inode_str.empty()) continue;
 
-        try {
-            inodes.insert(std::stoull(inode_str));
-        } catch (...) {
-        }
-    }
+        uint64_t inode = 0;
 
-    return inodes;
+        try {
+            inode = std::stoull(inode_str);
+        } catch (...) {
+            continue;
+        }
+
+        if (inode == 0) continue;
+
+        if (tcp_table) {
+            snapshot.tcp_inodes.insert(inode);
+
+            // State 01 is TCP_ESTABLISHED, every other value is a listener or a socket already tearing down
+            if (state == "01") snapshot.established_tcp_inodes.insert(inode);
+        } else {
+            snapshot.udp_inodes.insert(inode);
+        }
+
+        snapshot.queued_bytes_by_inode[inode] = parse_queue_bytes(queues);
+    }
 }
+
+
+
+
+
+SocketStateSnapshot ProcessActivity::capture_socket_state() {
+    SocketStateSnapshot snapshot;
+
+    merge_proc_net_table("/proc/net/tcp", true, snapshot);
+    merge_proc_net_table("/proc/net/tcp6", true, snapshot);
+    merge_proc_net_table("/proc/net/udp", false, snapshot);
+    merge_proc_net_table("/proc/net/udp6", false, snapshot);
+
+    return snapshot;
+}
+
+
+
 
 
 std::unordered_set<uint64_t> ProcessActivity::collect_socket_inodes(int pid) {
@@ -82,29 +126,20 @@ std::unordered_set<uint64_t> ProcessActivity::collect_socket_inodes(int pid) {
 }
 
 
-ProcessNetActivity ProcessActivity::read_net_activity(int pid) {
+
+
+
+ProcessNetActivity ProcessActivity::summarize(const std::unordered_set<uint64_t>& socket_inodes, const SocketStateSnapshot& snapshot) {
     ProcessNetActivity activity{0, 0, false};
-    if (pid <= 0) return activity;
 
-    auto proc_sockets = collect_socket_inodes(pid);
-    if (proc_sockets.empty()) return activity;
-
-    auto tcp_inodes = parse_proc_net_table("/proc/net/tcp");
-    auto tcp6_inodes = parse_proc_net_table("/proc/net/tcp6");
-    auto udp_inodes = parse_proc_net_table("/proc/net/udp");
-    auto udp6_inodes = parse_proc_net_table("/proc/net/udp6");
-
-
-    for (uint64_t inode : proc_sockets) {
-        bool is_tcp = tcp_inodes.count(inode) > 0 || tcp6_inodes.count(inode) > 0;
-        bool is_udp = udp_inodes.count(inode) > 0 || udp6_inodes.count(inode) > 0;
-
-        if (is_tcp) {
+    for (uint64_t inode : socket_inodes) {
+        if (snapshot.tcp_inodes.count(inode) > 0) {
             activity.tcp_socket_count += 1;
-            activity.has_established_tcp = true;
+
+            if (snapshot.established_tcp_inodes.count(inode) > 0) activity.has_established_tcp = true;
         }
 
-        if (is_udp) {
+        if (snapshot.udp_inodes.count(inode) > 0) {
             activity.udp_socket_count += 1;
         }
     }
@@ -113,7 +148,12 @@ ProcessNetActivity ProcessActivity::read_net_activity(int pid) {
 }
 
 
+
+
+
 std::unordered_set<uint64_t> ProcessActivity::collect_socket_inodes_for(int pid) {
+    if (pid <= 0) return {};
+
     return collect_socket_inodes(pid);
 }
 

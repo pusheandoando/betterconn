@@ -15,6 +15,7 @@ public:
 
 private:
     static std::string detect_interface();
+    static std::string active_profile();
     static std::pair<double, double> measure_speed(const std::string& iface);
     static double measure_ping(const std::string& host);
     static std::string read_sysctl(const std::string& key);

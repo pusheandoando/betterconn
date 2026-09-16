@@ -11,35 +11,53 @@
 
 
 namespace betterconn {
+std::string WindowFocusDetector::run_and_capture(const std::string& command) {
+    FILE* p = popen(command.c_str(), "r");
+    if (!p) return "";
+
+    std::string output;
+    char buf[4096];
+
+    while (fgets(buf, sizeof(buf), p)) output += buf;
+
+    pclose(p);
+
+    return output;
+}
+
+
 bool WindowFocusDetector::xdotool_available() {
     return system("command -v xdotool >/dev/null 2>&1") == 0;
 }
 
 
-bool WindowFocusDetector::swaymsg_available() {
+bool WindowFocusDetector::swaymsg_available(const std::string& env_prefix) {
     if (system("command -v swaymsg >/dev/null 2>&1") != 0) return false;
 
-    return system("swaymsg -t get_version >/dev/null 2>&1") == 0;
+    return system((env_prefix + "swaymsg -t get_version >/dev/null 2>&1").c_str()) == 0;
 }
 
 
-bool WindowFocusDetector::hyprctl_available() {
+bool WindowFocusDetector::hyprctl_available(const std::string& env_prefix) {
     if (system("command -v hyprctl >/dev/null 2>&1") != 0) return false;
 
-    return system("hyprctl version >/dev/null 2>&1") == 0;
+    return system((env_prefix + "hyprctl version >/dev/null 2>&1").c_str()) == 0;
 }
 
 
-WindowFocusBackend WindowFocusDetector::detect_available_backend() {
-    if (xdotool_available() && get_focused_pid(WindowFocusBackend::X11Xdotool) > 0) {
+
+
+
+WindowFocusBackend WindowFocusDetector::detect_available_backend(const std::string& env_prefix) {
+    if (xdotool_available() && get_focused_pid_x11(env_prefix) > 0) {
         return WindowFocusBackend::X11Xdotool;
     }
 
-    if (swaymsg_available()) {
+    if (swaymsg_available(env_prefix)) {
         return WindowFocusBackend::WaylandSway;
     }
 
-    if (hyprctl_available()) {
+    if (hyprctl_available(env_prefix)) {
         return WindowFocusBackend::WaylandHyprland;
     }
 
@@ -47,16 +65,12 @@ WindowFocusBackend WindowFocusDetector::detect_available_backend() {
 }
 
 
-int WindowFocusDetector::run_and_capture_pid(const char* command, const char* anchor_key) {
-    FILE* p = popen(command, "r");
-    if (!p) return -1;
 
-    std::string output;
-    char buf[512];
 
-    while (fgets(buf, sizeof(buf), p)) output += buf;
 
-    pclose(p);
+int WindowFocusDetector::run_and_capture_pid(const std::string& command, const char* anchor_key) {
+    std::string output = run_and_capture(command);
+    if (output.empty()) return -1;
 
     auto pos = output.find(anchor_key);
     if (pos == std::string::npos) return -1;
@@ -84,10 +98,13 @@ bool WindowFocusDetector::parse_shell_field(const std::string& output, const cha
 
     pos += std::string(key).size();
 
-    auto digits_start = pos;
+    // Compositor JSON keeps a space between the colon and the value, so the digits are not always adjacent to the key
+    auto digits_start = output.find_first_not_of(" \t", pos);
+    if (digits_start == std::string::npos) return false;
+
     bool negative = false;
 
-    if (digits_start < output.size() && output[digits_start] == '-') {
+    if (output[digits_start] == '-') {
         negative = true;
         ++digits_start;
     }
@@ -107,37 +124,14 @@ bool WindowFocusDetector::parse_shell_field(const std::string& output, const cha
 }
 
 
-int WindowFocusDetector::get_focused_pid_x11() {
-    FILE* p = popen("xdotool getactivewindow getwindowpid 2>/dev/null", "r");
-    if (!p) return -1;
-
-    char buf[32];
-    std::string output;
-
-    if (fgets(buf, sizeof(buf), p)) output = buf;
-
-    pclose(p);
-
-    if (output.empty()) return -1;
-
-    try {
-        return std::stoi(output);
-    } catch (...) {
-        return -1;
-    }
+int WindowFocusDetector::get_focused_pid_x11(const std::string& env_prefix) {
+    return run_and_capture_pid(env_prefix + "xdotool getactivewindow getwindowpid 2>/dev/null", "");
 }
 
 
-int WindowFocusDetector::get_focused_pid_sway() {
-    FILE* p = popen("swaymsg -r -t get_tree 2>/dev/null", "r");
-    if (!p) return -1;
-
-    std::string output;
-    char buf[4096];
-
-    while (fgets(buf, sizeof(buf), p)) output += buf;
-
-    pclose(p);
+int WindowFocusDetector::get_focused_pid_sway(const std::string& env_prefix) {
+    std::string output = run_and_capture(env_prefix + "swaymsg -r -t get_tree 2>/dev/null");
+    if (output.empty()) return -1;
 
     const std::string focused_marker = "\"focused\"";
     const std::string pid_key = "\"pid\"";
@@ -181,41 +175,23 @@ int WindowFocusDetector::get_focused_pid_sway() {
 }
 
 
-int WindowFocusDetector::get_focused_pid_hyprland() {
-    return run_and_capture_pid("hyprctl activewindow -j 2>/dev/null", "\"pid\":");
+int WindowFocusDetector::get_focused_pid_hyprland(const std::string& env_prefix) {
+    return run_and_capture_pid(env_prefix + "hyprctl activewindow -j 2>/dev/null", "\"pid\":");
 }
 
 
-int WindowFocusDetector::get_pid_under_cursor_x11() {
-    FILE* p = popen("xdotool getmouselocation --shell 2>/dev/null", "r");
-    if (!p) return -1;
-
-    std::string output;
-    char buf[256];
-
-    while (fgets(buf, sizeof(buf), p)) output += buf;
-
-    pclose(p);
+int WindowFocusDetector::get_pid_under_cursor_x11(const std::string& env_prefix) {
+    std::string output = run_and_capture(env_prefix + "xdotool getmouselocation --shell 2>/dev/null");
 
     long window_id = 0;
     if (!parse_shell_field(output, "WINDOW=", window_id) || window_id <= 0) return -1;
 
-    std::string cmd = "xdotool getwindowpid " + std::to_string(window_id) + " 2>/dev/null";
-
-    return run_and_capture_pid(cmd.c_str(), "");
+    return run_and_capture_pid(env_prefix + "xdotool getwindowpid " + std::to_string(window_id) + " 2>/dev/null", "");
 }
 
 
-int WindowFocusDetector::get_pid_under_cursor_hyprland() {
-    FILE* cursor_pipe = popen("hyprctl cursorpos -j 2>/dev/null", "r");
-    if (!cursor_pipe) return -1;
-
-    std::string cursor_output;
-    char buf[256];
-
-    while (fgets(buf, sizeof(buf), cursor_pipe)) cursor_output += buf;
-
-    pclose(cursor_pipe);
+int WindowFocusDetector::get_pid_under_cursor_hyprland(const std::string& env_prefix) {
+    std::string cursor_output = run_and_capture(env_prefix + "hyprctl cursorpos -j 2>/dev/null");
 
     long cursor_x = 0;
     long cursor_y = 0;
@@ -223,14 +199,7 @@ int WindowFocusDetector::get_pid_under_cursor_hyprland() {
     if (!parse_shell_field(cursor_output, "\"x\":", cursor_x)) return -1;
     if (!parse_shell_field(cursor_output, "\"y\":", cursor_y)) return -1;
 
-    FILE* clients_pipe = popen("hyprctl clients -j 2>/dev/null", "r");
-    if (!clients_pipe) return -1;
-
-    std::string clients_output;
-
-    while (fgets(buf, sizeof(buf), clients_pipe)) clients_output += buf;
-
-    pclose(clients_pipe);
+    std::string clients_output = run_and_capture(env_prefix + "hyprctl clients -j 2>/dev/null");
 
     const std::string at_key = "\"at\":";
     size_t search_from = 0;
@@ -244,63 +213,63 @@ int WindowFocusDetector::get_pid_under_cursor_hyprland() {
         if (array_start == std::string::npos || array_end == std::string::npos) return -1;
 
         std::string at_array = clients_output.substr(array_start, array_end - array_start + 1);
+        search_from = array_end;
 
         long window_x = 0;
         long window_y = 0;
 
-        if (!parse_shell_field(at_array, "[", window_x)) return -1;
+        if (!parse_shell_field(at_array, "[", window_x)) continue;
 
         auto comma_pos = at_array.find(',');
-        if (comma_pos == std::string::npos) return -1;
+        if (comma_pos == std::string::npos) continue;
 
-        if (!parse_shell_field(at_array.substr(comma_pos), ",", window_y)) return -1;
+        if (!parse_shell_field(at_array.substr(comma_pos), ",", window_y)) continue;
 
         auto size_pos = clients_output.find("\"size\":", array_end);
+        if (size_pos == std::string::npos) continue;
+
         auto size_array_start = clients_output.find('[', size_pos);
         auto size_array_end = clients_output.find(']', size_array_start);
+        if (size_array_start == std::string::npos || size_array_end == std::string::npos) continue;
+
+        std::string size_array = clients_output.substr(size_array_start, size_array_end - size_array_start + 1);
 
         long window_width = 0;
         long window_height = 0;
 
-        if (size_pos != std::string::npos && size_array_start != std::string::npos && size_array_end != std::string::npos) {
-            std::string size_array = clients_output.substr(size_array_start, size_array_end - size_array_start + 1);
+        if (!parse_shell_field(size_array, "[", window_width)) continue;
 
-            parse_shell_field(size_array, "[", window_width);
+        auto size_comma_pos = size_array.find(',');
+        if (size_comma_pos == std::string::npos) continue;
 
-            auto size_comma_pos = size_array.find(',');
-            if (size_comma_pos != std::string::npos) {
-                parse_shell_field(size_array.substr(size_comma_pos), ",", window_height);
-            }
-        }
+        if (!parse_shell_field(size_array.substr(size_comma_pos), ",", window_height)) continue;
 
         bool cursor_inside_rect = cursor_x >= window_x && cursor_x < (window_x + window_width)
             && cursor_y >= window_y && cursor_y < (window_y + window_height);
 
-        if (cursor_inside_rect) {
-            auto pid_pos = clients_output.find("\"pid\":", array_end);
+        if (!cursor_inside_rect) continue;
 
-            if (pid_pos != std::string::npos) {
-                long pid_value = 0;
+        auto pid_pos = clients_output.find("\"pid\":", size_array_end);
+        if (pid_pos == std::string::npos) continue;
 
-                if (parse_shell_field(clients_output, "\"pid\":", pid_value) && pid_value > 0) {
-                    return static_cast<int>(pid_value);
-                }
-            }
+        long pid_value = 0;
+
+        // The lookup has to start at the matching client, otherwise every call returns the first client of the list
+        if (parse_shell_field(clients_output.substr(pid_pos), "\"pid\":", pid_value) && pid_value > 0) {
+            return static_cast<int>(pid_value);
         }
-
-        search_from = array_end;
     }
 }
 
 
-int WindowFocusDetector::get_focused_pid(WindowFocusBackend backend) {
+int WindowFocusDetector::get_focused_pid(WindowFocusBackend backend, const std::string& env_prefix) {
     switch (backend) {
         case WindowFocusBackend::X11Xdotool:
-            return get_focused_pid_x11();
+            return get_focused_pid_x11(env_prefix);
         case WindowFocusBackend::WaylandSway:
-            return get_focused_pid_sway();
+            return get_focused_pid_sway(env_prefix);
         case WindowFocusBackend::WaylandHyprland:
-            return get_focused_pid_hyprland();
+            return get_focused_pid_hyprland(env_prefix);
         case WindowFocusBackend::None:
         default:
             return -1;
@@ -308,14 +277,14 @@ int WindowFocusDetector::get_focused_pid(WindowFocusBackend backend) {
 }
 
 
-int WindowFocusDetector::get_pid_under_cursor(WindowFocusBackend backend) {
+int WindowFocusDetector::get_pid_under_cursor(WindowFocusBackend backend, const std::string& env_prefix) {
     switch (backend) {
         case WindowFocusBackend::X11Xdotool:
-            return get_pid_under_cursor_x11();
+            return get_pid_under_cursor_x11(env_prefix);
         case WindowFocusBackend::WaylandHyprland:
-            return get_pid_under_cursor_hyprland();
+            return get_pid_under_cursor_hyprland(env_prefix);
         case WindowFocusBackend::WaylandSway:
-            return get_focused_pid_sway();
+            return get_focused_pid_sway(env_prefix);
         case WindowFocusBackend::None:
         default:
             return -1;

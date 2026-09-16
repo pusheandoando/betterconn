@@ -1,11 +1,14 @@
 // core/src/tuner.cpp
 #include "betterconn/tuner.hpp"
+#include "betterconn/wifi_airtime.hpp"
 
 #include <cmath>
 #include <chrono>
+#include <cctype>
 #include <cstdio>
 #include <string>
 #include <thread>
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 #include <algorithm>
@@ -20,7 +23,7 @@ static constexpr int kSampleIntervalMs = 200;
 static constexpr int kBufferIntervalMs = 400;
 static constexpr int kQdiscIntervalMs = 600;
 static constexpr int kWifiIntervalMs = 600;
-static constexpr int kRttIntervalMs = 1000;
+static constexpr int kRttIntervalMs = 2000;
 
 static constexpr double kRttHighMs = 55.0;
 static constexpr double kRttLowMs = 20.0;
@@ -46,9 +49,24 @@ void Tuner::write_sysctl(const std::string& key, const std::string& value) {
 }
 
 
-void Tuner::set_qdisc_target(const std::string& iface, int target_ms) {
-    (void)iface;
-    (void)target_ms;
+static int qdisc_rtt_bucket_ms(double rtt_ms) {
+    if (rtt_ms <= 0.0) return -1;
+    if (rtt_ms < 10.0) return 10;
+    if (rtt_ms < 20.0) return 20;
+    if (rtt_ms < 50.0) return 50;
+    if (rtt_ms < 100.0) return 100;
+
+    return 200;
+}
+
+
+void Tuner::set_qdisc_rtt(const std::string& iface, int rtt_ms) {
+    if (iface.empty() || rtt_ms <= 0) return;
+
+    // cake derives its AQM target from the configured rtt, so following the measured path rtt keeps the target from being too aggressive on short paths and too slack on long ones
+    std::string cmd = "tc qdisc change dev " + iface + " root cake rtt " + std::to_string(rtt_ms) + "ms 2>/dev/null";
+
+    system(cmd.c_str());
 }
 
 
@@ -71,8 +89,90 @@ uint64_t Tuner::compute_bdp_buf(double rx_bps, double rtt_ms) {
 }
 
 
+double Tuner::read_passive_rtt_ms() {
+    FILE* p = popen("ss -tin state established 2>/dev/null", "r");
+    if (!p) return -1.0;
+
+    std::string out;
+    char buf[1024];
+
+    while (fgets(buf, sizeof(buf), p)) out += buf;
+
+    pclose(p);
+
+    const std::string key = "rtt:";
+    double best = -1.0;
+    size_t search_from = 0;
+
+    while (true) {
+        auto pos = out.find(key, search_from);
+        if (pos == std::string::npos) break;
+
+        search_from = pos + key.size();
+
+        // "minrtt:" ends with the same three characters, so anything glued to the key is a different field
+        if (pos > 0 && std::isalpha(static_cast<unsigned char>(out[pos - 1]))) continue;
+
+        auto value_end = out.find_first_not_of("0123456789.", search_from);
+        std::string value = out.substr(search_from, value_end - search_from);
+
+        try {
+            double rtt = std::stod(value);
+
+            if (rtt > 0.0 && (best < 0.0 || rtt < best)) best = rtt;
+        } catch (...) {
+        }
+    }
+
+    return best;
+}
+
+
+std::string Tuner::read_default_gateway() {
+    std::ifstream f("/proc/net/route");
+    if (!f) return "";
+
+    std::string line;
+    std::getline(f, line);
+
+    while (std::getline(f, line)) {
+        std::istringstream ss(line);
+        std::string iface, dest, gateway;
+
+        ss >> iface >> dest >> gateway;
+
+        if (dest != "00000000" || gateway.size() != 8) continue;
+
+        unsigned long raw = 0;
+
+        try {
+            raw = std::stoul(gateway, nullptr, 16);
+        } catch (...) {
+            continue;
+        }
+
+        if (raw == 0) continue;
+
+        // The route table stores the address in little endian hex, so the first octet is the low byte
+        std::ostringstream address;
+        address << (raw & 0xff) << "." << ((raw >> 8) & 0xff) << "." << ((raw >> 16) & 0xff) << "." << ((raw >> 24) & 0xff);
+
+        return address.str();
+    }
+
+    return "";
+}
+
+
 double Tuner::read_rtt_ms() {
-    FILE* p = popen("ping -c 2 -i 0.1 -W 1 8.8.8.8 2>/dev/null", "r");
+    // Reading the smoothed rtt the kernel already keeps for live sockets measures the real path without adding probe traffic of its own, and it reflects the connections that actually matter
+    double passive = read_passive_rtt_ms();
+    if (passive > 0.0) return passive;
+
+    std::string gateway = read_default_gateway();
+    std::string target = gateway.empty() ? std::string("8.8.8.8") : gateway;
+
+    FILE* p = popen(("ping -c 2 -i 0.2 -W 1 " + target + " 2>/dev/null").c_str(), "r");
     if (!p) return -1.0;
     
     std::string out;
@@ -265,9 +365,13 @@ void Tuner::sampler_loop(const std::string& iface, std::atomic<bool>& running, S
 }
 
 
+static constexpr double kPeakDecayPerSample = 0.999;
+
+
 void Tuner::buffer_loop(std::atomic<bool>& running, SharedSample& s) {
     uint64_t last_seq = 0;
-    double smoothed_rx = 0.0;
+    uint64_t last_written_buf = 0;
+    double peak_rx = 0.0;
     double smoothed_rtt = 30.0;
     const double alpha = 0.3;
 
@@ -281,10 +385,15 @@ void Tuner::buffer_loop(std::atomic<bool>& running, SharedSample& s) {
         double rx_bps = s.rx_bps.load(std::memory_order_relaxed);
         double rtt = s.rtt_ms.load(std::memory_order_relaxed);
 
-        smoothed_rx = alpha * rx_bps + (1.0 - alpha) * smoothed_rx;
+        // Sizing from the instantaneous rate shrinks the buffers while the link is idle, which then throttles the next download for as long as they take to grow back
+        peak_rx = std::max(rx_bps, peak_rx * kPeakDecayPerSample);
+
         if (rtt > 0.0) smoothed_rtt = alpha * rtt + (1.0 - alpha) * smoothed_rtt;
 
-        uint64_t buf = compute_bdp_buf(smoothed_rx, smoothed_rtt);
+        uint64_t buf = compute_bdp_buf(peak_rx, smoothed_rtt);
+
+        if (buf == last_written_buf) continue;
+        last_written_buf = buf;
 
         write_sysctl("net.core.rmem_max", std::to_string(buf));
         write_sysctl("net.core.wmem_max", std::to_string(buf));
@@ -304,9 +413,10 @@ void Tuner::buffer_loop(std::atomic<bool>& running, SharedSample& s) {
 
 
 void Tuner::qdisc_loop(const std::string& iface, std::atomic<bool>& running, SharedSample& s, SurveyMonitor& survey, PriorityScheduler& scheduler) {
-    (void)iface;
     (void)scheduler;
+
     uint64_t last_seq = 0;
+    int applied_rtt_ms = -1;
 
     while (running.load(std::memory_order_relaxed)) {
         std::this_thread::sleep_for(std::chrono::milliseconds(kQdiscIntervalMs));
@@ -342,6 +452,13 @@ void Tuner::qdisc_loop(const std::string& iface, std::atomic<bool>& running, Sha
 
         write_sysctl("net.ipv4.tcp_notsent_lowat", notsent);
         write_sysctl("net.core.netdev_budget", budget);
+
+        int target_rtt_ms = qdisc_rtt_bucket_ms(rtt);
+
+        if (target_rtt_ms > 0 && target_rtt_ms != applied_rtt_ms) {
+            set_qdisc_rtt(iface, target_rtt_ms);
+            applied_rtt_ms = target_rtt_ms;
+        }
     }
 }
 
@@ -402,6 +519,9 @@ void Tuner::rtt_loop(std::atomic<bool>& running, SharedSample& s) {
 void Tuner::start(const std::string& iface) {
     running_.store(true, std::memory_order_relaxed);
 
+    // The airtime queue limits live in debugfs and are reset on every boot, so the daemon reapplies them on each start
+    WifiAirtime::apply(iface);
+
     sampler_thread_ = std::thread([iface, this]() {
         sampler_loop(iface, running_, sample_);
     });
@@ -423,7 +543,7 @@ void Tuner::start(const std::string& iface) {
     });
 
     survey_monitor_.start(iface);
-    priority_scheduler_.start(iface);
+    priority_scheduler_.start();
 }
 
 
